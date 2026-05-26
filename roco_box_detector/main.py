@@ -73,6 +73,7 @@ class App:
         self.result_text._signals.toggle_debug_save.connect(self._on_toggle_debug_save)
         self.result_text._signals.toggle_preview.connect(self._on_toggle_preview)
         self.result_text._signals.toggle_debug_overlay.connect(self._on_toggle_debug_overlay)
+        self.result_text._signals.request_quit.connect(self._quit)
 
         # Detector — callback emits signal via bridge (thread-safe)
         self.detector = CascadeDetector(

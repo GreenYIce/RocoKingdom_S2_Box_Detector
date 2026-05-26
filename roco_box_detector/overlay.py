@@ -451,6 +451,7 @@ class _RTOSignals(QObject):
     size_changed = pyqtSignal(int, int)
     open_settings = pyqtSignal()
     request_re_select = pyqtSignal()
+    request_quit = pyqtSignal()
     toggle_debug_save = pyqtSignal(bool)
     toggle_preview = pyqtSignal(bool)
     toggle_debug_overlay = pyqtSignal(bool)
@@ -640,10 +641,20 @@ class ResultTextOverlay(QWidget):
         clear_btn.clicked.connect(self._do_clear)
         hl.addWidget(clear_btn)
 
-        # Close
-        close_btn = self._make_header_btn("✕", "关闭面板")
+        # Close panel
+        close_btn = self._make_header_btn("✕", "隐藏面板")
         close_btn.clicked.connect(lambda: QWidget.hide(self))
         hl.addWidget(close_btn)
+
+        # Quit app
+        quit_btn = self._make_header_btn("⏻", "退出程序")
+        quit_btn.setStyleSheet(
+            "QPushButton { color: #e04040; background: transparent; border: none; "
+            "font-size: 14px; padding: 0; }"
+            "QPushButton:hover { color: #ff6666; background: rgba(255,64,64,30); "
+            "border-radius: 4px; }")
+        quit_btn.clicked.connect(lambda: self._signals.request_quit.emit())
+        hl.addWidget(quit_btn)
 
         panel_layout.addWidget(self._header_bar)
 

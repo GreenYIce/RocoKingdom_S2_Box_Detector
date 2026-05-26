@@ -16,7 +16,7 @@
       "templates/box_anchor/d957670d-5d24-462c-96db-1dcfbbe12773.png",
       "templates/box_anchor/fab2bb51-c9a8-467f-8a92-018066e9d7da.png"
     ],
-    "threshold": 0.7,
+    "threshold": 0.71,
     "scale_min": 0.75,
     "scale_max": 1.25,
     "scale_steps": 6,
@@ -119,7 +119,8 @@
       "templates": [
         "templates/patterns_2/物防1.png",
         "templates/patterns_2/物防2.png",
-        "templates/patterns_2/物防3.png"
+        "templates/patterns_2/物防3.png",
+        "templates/patterns_2/物防4.png"
       ],
       "threshold": 0.6,
       "scale_min": 0.65,
@@ -131,8 +132,8 @@
     "魔防": {
       "templates": [
         "templates/patterns_2/魔防1.png",
-        "templates/patterns_2/魔攻3.png",
-        "templates/patterns_2/魔防2.png"
+        "templates/patterns_2/魔防2.png",
+        "templates/patterns_2/魔防3.png"
       ],
       "threshold": 0.65,
       "scale_min": 0.65,
@@ -256,10 +257,10 @@
   },
   "result_text_overlay": {
     "enabled": true,
-    "x": 865,
-    "y": 4,
-    "width": 911,
-    "height": 193,
+    "x": 2057,
+    "y": 389,
+    "width": 486,
+    "height": 622,
     "min_width": 220,
     "min_height": 160,
     "font_family": "微软雅黑",
