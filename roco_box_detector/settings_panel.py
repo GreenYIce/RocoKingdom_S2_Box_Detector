@@ -11,9 +11,9 @@ from PyQt5.QtWidgets import (
     QPushButton, QSlider, QDoubleSpinBox, QSpinBox, QCheckBox,
     QComboBox, QListWidget, QListWidgetItem, QLineEdit,
     QFileDialog, QMessageBox, QGroupBox, QFormLayout, QInputDialog,
-    QFrame, QColorDialog, QFontComboBox, QScrollArea,
+    QFrame, QColorDialog, QFontComboBox, QScrollArea, QAbstractSpinBox,
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QEvent, QObject
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPixmap
 
 
@@ -208,7 +208,7 @@ class AnchorTab(QWidget):
 
     def _add_template(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "选择Anchor模板图片", "templates/box_anchor",
+            self, "选择Anchor模板图片", resolve_path("templates/box_anchor"),
             "Images (*.png *.jpg *.jpeg *.bmp)")
         if path:
             # Store relative path
@@ -483,7 +483,7 @@ class PatternsTab(QWidget):
 
     def _add_template(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "选择图案模板图片", "templates/patterns",
+            self, "选择图案模板图片", resolve_path("templates/patterns"),
             "Images (*.png *.jpg *.jpeg *.bmp)")
         if path:
             # Normalize to templates/xxx.png (strip dev prefix, fix slashes)
@@ -669,7 +669,7 @@ class Patterns2Tab(QWidget):
 
     def _add_template(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "选择ROI2图案模板图片", "templates/patterns_2",
+            self, "选择ROI2图案模板图片", resolve_path("templates/patterns_2"),
             "Images (*.png *.jpg *.jpeg *.bmp)")
         if path:
             idx = path.replace('\\', '/').find('templates/')
@@ -999,10 +999,9 @@ class ResultTextTab(QWidget):
         super().__init__(parent)
         self.config = config
         self._build()
-        self._scroll = None  # will hold parent scroll area reference
+        self._scroll = None
 
     def _build(self):
-        # Wrap in a scroll area so all fields fit
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
@@ -1021,41 +1020,14 @@ class ResultTextTab(QWidget):
         self.font_combo.setCurrentFont(QFont(cfg.get("font_family", "Microsoft YaHei")))
         form.addRow("字体", self.font_combo)
 
-        self.font_size_spin = QSpinBox()
-        self.font_size_spin.setRange(12, 120)
-        self.font_size_spin.setValue(cfg.get("font_size", 28))
-        form.addRow("字号(最新)", self.font_size_spin)
-
-        self.font_size_step_spin = QSpinBox()
-        self.font_size_step_spin.setRange(0, 20)
-        self.font_size_step_spin.setValue(cfg.get("font_size_step", 3))
-        form.addRow("字号递减量", self.font_size_step_spin)
-
-        self.min_font_size_spin = QSpinBox()
-        self.min_font_size_spin.setRange(8, 60)
-        self.min_font_size_spin.setValue(cfg.get("min_font_size", 14))
-        form.addRow("最小字号", self.min_font_size_spin)
-
         self.color_edit = _make_color_row(form, "默认颜色", cfg.get("default_color", "#FFD700"))
-        self.outline_color_edit = _make_color_row(form, "描边颜色", cfg.get("outline_color", "#000000"))
-
-        self.outline_width_spin = QSpinBox()
-        self.outline_width_spin.setRange(0, 10)
-        self.outline_width_spin.setValue(cfg.get("outline_width", 2))
-        form.addRow("描边宽度", self.outline_width_spin)
-
-        self.item_spacing_spin = QSpinBox()
-        self.item_spacing_spin.setRange(20, 200)
-        self.item_spacing_spin.setValue(cfg.get("item_spacing", 42))
-        form.addRow("行间距", self.item_spacing_spin)
+        self.plus_color_edit = _make_color_row(form, "加号颜色", cfg.get("plus_color", "#DDDDDD"))
+        self.count_color_edit = _make_color_row(form, "计数颜色", cfg.get("count_color", "#AAAAAA"))
 
         self.max_items_spin = QSpinBox()
         self.max_items_spin.setRange(1, 500)
-        self.max_items_spin.setValue(cfg.get("max_items", 100))
+        self.max_items_spin.setValue(cfg.get("max_items", 104))
         form.addRow("最大记录数", self.max_items_spin)
-
-        self.template_edit = QLineEdit(cfg.get("text_template", "{label}"))
-        form.addRow("文字模板", self.template_edit)
 
         self.fallback_edit = QLineEdit(cfg.get("roi_fallback", ""))
         self.fallback_edit.setPlaceholderText("未识别时的替代文字，如：太快了没看清喵")
@@ -1064,8 +1036,8 @@ class ResultTextTab(QWidget):
         self.title_edit = QLineEdit(cfg.get("title", "识别记录"))
         form.addRow("标题文字", self.title_edit)
 
-        self.bg_color_edit = _make_color_row(form, "背景颜色", cfg.get("background_color", "rgba(0,0,0,150)"))
-        self.border_color_edit = _make_color_row(form, "边框颜色", cfg.get("border_color", "rgba(255,255,255,60)"))
+        self.bg_color_edit = _make_color_row(form, "背景颜色", cfg.get("background_color", "rgba(8,10,16,190)"))
+        self.border_color_edit = _make_color_row(form, "边框颜色", cfg.get("border_color", "rgba(255,255,255,45)"))
 
         self.border_radius_spin = QSpinBox()
         self.border_radius_spin.setRange(0, 30)
@@ -1079,37 +1051,67 @@ class ResultTextTab(QWidget):
 
         self.scrollbar_width_spin = QSpinBox()
         self.scrollbar_width_spin.setRange(2, 16)
-        self.scrollbar_width_spin.setValue(cfg.get("scrollbar_width", 6))
+        self.scrollbar_width_spin.setValue(cfg.get("scrollbar_width", 7))
         form.addRow("滚动条宽度", self.scrollbar_width_spin)
 
-        self.count_font_size_spin = QSpinBox()
-        self.count_font_size_spin.setRange(8, 48)
-        self.count_font_size_spin.setValue(cfg.get("count_font_size", 9))
-        form.addRow("计数字号", self.count_font_size_spin)
-
-        self.show_counts_cb = _make_checkbox_row(form, "显示计数", cfg.get("show_counts", True))
-        self.click_through_cb = _make_checkbox_row(form, "鼠标穿透", cfg.get("click_through", False))
+        self.click_through_cb = _make_checkbox_row(form, "鼠标穿透", cfg.get("click_through", True))
 
         layout.addLayout(form)
 
-        # Per-label colors (patterns + patterns_2)
-        lbl_colors = cfg.get("label_colors", {})
+        # ── counter settings ──
+        counter_group = QGroupBox("底部计数区")
+        counter_form = QFormLayout(counter_group)
+        self.show_counter_cb = _make_checkbox_row(counter_form, "显示计数区",
+                                                    cfg.get("show_counter_area", True))
+        self.counter_top_n_spin = QSpinBox()
+        self.counter_top_n_spin.setRange(1, 20)
+        self.counter_top_n_spin.setValue(cfg.get("counter_top_n", 5))
+        counter_form.addRow("最多显示条目", self.counter_top_n_spin)
+        layout.addWidget(counter_group)
+
+        # ── bloodline colors (patterns / ROI1) ──
+        bl_colors = cfg.get("bloodline_colors", {})
         patterns1 = self.config.get("patterns", {})
+        if patterns1:
+            bl_group = QGroupBox("血脉颜色 (样本1)")
+            bl_group_layout = QFormLayout(bl_group)
+            self._bl_color_edits = {}
+            for pname in patterns1:
+                default = bl_colors.get(pname, "#FFD700")
+                edit = _make_color_row(bl_group_layout, pname, default)
+                self._bl_color_edits[pname] = edit
+            layout.addWidget(bl_group)
+
+        # ── attribute colors (patterns_2 / ROI2) ──
+        attr_colors = cfg.get("attribute_colors", {})
         patterns2 = self.config.get("patterns_2", {})
+        if patterns2:
+            attr_group = QGroupBox("属性颜色 (样本2)")
+            attr_group_layout = QFormLayout(attr_group)
+            self._attr_color_edits = {}
+            for pname in patterns2:
+                default = attr_colors.get(pname, "#FFD700")
+                edit = _make_color_row(attr_group_layout, pname, default)
+                self._attr_color_edits[pname] = edit
+            layout.addWidget(attr_group)
+
+        # ── legacy label_colors (fallback) ──
+        lbl_colors = cfg.get("label_colors", {})
         all_patterns = {**patterns1, **patterns2}
         if all_patterns:
-            colors_group = QGroupBox("各图案颜色")
-            colors_layout = QFormLayout(colors_group)
+            lc_group = QGroupBox("兼容颜色 (label_colors)")
+            lc_group_layout = QFormLayout(lc_group)
             self._label_color_edits = {}
             for pname in all_patterns:
                 default = lbl_colors.get(pname, "#FFD700")
                 tag = " [ROI2]" if pname in patterns2 and pname not in patterns1 else ""
-                edit = _make_color_row(colors_layout, pname + tag, default)
+                edit = _make_color_row(lc_group_layout, pname + tag, default)
                 self._label_color_edits[pname] = edit
-            layout.addWidget(colors_group)
+            layout.addWidget(lc_group)
 
-        hint = QLabel("{label} = 图案名。面板可拖动标题栏移动，右下角拖拽调整大小。\n"
-                      "记录不自动消失，点击右上角 ✕ 清空。")
+        hint = QLabel("血脉=样本1匹配结果，属性=样本2匹配结果。\n"
+                      "面板可拖动标题栏移动，右下角拖拽调整大小。\n"
+                      "按 Alt 键可临时显示鼠标进行交互。")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888; font-size: 11px;")
         layout.addWidget(hint)
@@ -1122,15 +1124,10 @@ class ResultTextTab(QWidget):
         rt = cfg.setdefault("result_text_overlay", {})
         rt["enabled"] = self.enabled_cb.isChecked()
         rt["font_family"] = self.font_combo.currentFont().family()
-        rt["font_size"] = self.font_size_spin.value()
-        rt["font_size_step"] = self.font_size_step_spin.value()
-        rt["min_font_size"] = self.min_font_size_spin.value()
         rt["default_color"] = self.color_edit.text()
-        rt["outline_color"] = self.outline_color_edit.text()
-        rt["outline_width"] = self.outline_width_spin.value()
-        rt["item_spacing"] = self.item_spacing_spin.value()
+        rt["plus_color"] = self.plus_color_edit.text()
+        rt["count_color"] = self.count_color_edit.text()
         rt["max_items"] = self.max_items_spin.value()
-        rt["text_template"] = self.template_edit.text()
         rt["roi_fallback"] = self.fallback_edit.text()
         rt["title"] = self.title_edit.text()
         rt["background_color"] = self.bg_color_edit.text()
@@ -1138,19 +1135,46 @@ class ResultTextTab(QWidget):
         rt["border_radius"] = self.border_radius_spin.value()
         rt["padding"] = self.padding_spin.value()
         rt["scrollbar_width"] = self.scrollbar_width_spin.value()
-        rt["count_font_size"] = self.count_font_size_spin.value()
-        rt["show_counts"] = self.show_counts_cb.isChecked()
         rt["click_through"] = self.click_through_cb.isChecked()
-        # Carry over position/size from live state (set by drag/resize, no UI widgets)
+        rt["show_counter_area"] = self.show_counter_cb.isChecked()
+        rt["counter_top_n"] = self.counter_top_n_spin.value()
+        # Carry over position/size from live state
         old = self.config.get("result_text_overlay", {})
         for k in ("x", "y", "width", "height", "min_width", "min_height"):
             if k in old:
                 rt.setdefault(k, old[k])
+        if hasattr(self, '_bl_color_edits'):
+            bc = {}
+            for pname, edit in self._bl_color_edits.items():
+                bc[pname] = edit.text()
+            rt["bloodline_colors"] = bc
+        if hasattr(self, '_attr_color_edits'):
+            ac = {}
+            for pname, edit in self._attr_color_edits.items():
+                ac[pname] = edit.text()
+            rt["attribute_colors"] = ac
         if hasattr(self, '_label_color_edits'):
             lc = {}
             for pname, edit in self._label_color_edits.items():
                 lc[pname] = edit.text()
             rt["label_colors"] = lc
+
+
+# ── Wheel blocker event filter ────────────────────────────────────────
+
+
+class _WheelBlocker(QObject):
+    """Block mouse wheel on spinboxes/sliders/combos, allow on scroll areas."""
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Wheel:
+            w = obj
+            while w is not None:
+                if isinstance(w, (QAbstractSpinBox, QSlider, QComboBox)):
+                    return True  # block
+                if isinstance(w, (QScrollArea, QListWidget)):
+                    return False  # allow
+                w = w.parent()
+        return False
 
 
 # ── Main Settings Window ─────────────────────────────────────────────
@@ -1161,6 +1185,15 @@ class SettingsWindow(QWidget):
     config_saved = pyqtSignal(dict)   # emitted with the new config after save+apply
     config_save_only = pyqtSignal(dict)
 
+    def _force_topmost(self):
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, -1, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010)
+        except Exception:
+            pass
+
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
         self._original_config = config
@@ -1170,11 +1203,21 @@ class SettingsWindow(QWidget):
         self.setMinimumSize(620, 520)
         self.resize(640, 580)
 
+        # Always-on-top timer
+        self._topmost_timer = QTimer()
+        self._topmost_timer.setInterval(2000)
+        self._topmost_timer.timeout.connect(self._force_topmost)
+        self._topmost_timer.start()
+
         self._build_ui()
         self._load_all()
 
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
+
+        # Block mouse wheel on spinboxes/sliders/combos
+        self._wheel_blocker = _WheelBlocker(self)
+        self.installEventFilter(self._wheel_blocker)
 
         self.tabs = QTabWidget()
         self.anchor_tab = AnchorTab(self._working_config)

@@ -17,11 +17,19 @@ def _get_base_dir() -> str:
 
 def resolve_path(relative_path: str) -> str:
     """Resolve a path that may be relative to the project root.
-    When the file exists as-is, return it unchanged (handles absolute paths
-    and paths relative to CWD). Otherwise try the base directory."""
+    Checks: ① as-is  ② exe dir  ③ _MEIPASS (PyInstaller bundled)."""
     if os.path.exists(relative_path):
         return relative_path
-    resolved = os.path.join(_get_base_dir(), relative_path)
+    base = _get_base_dir()
+    resolved = os.path.join(base, relative_path)
+    if os.path.exists(resolved):
+        return resolved
+    if getattr(sys, 'frozen', False):
+        meipass = getattr(sys, '_MEIPASS', '')
+        if meipass:
+            alt = os.path.join(meipass, relative_path)
+            if os.path.exists(alt):
+                return alt
     return resolved
 
 

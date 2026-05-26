@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 
 from selector import ROISelector
-from overlay import Overlay, ResultTextOverlay, DebugBoxOverlay
+from overlay import ResultTextOverlay, DebugBoxOverlay
 from detector import CascadeDetector, CascadeDetectionResult
 from template_cache import TemplateCache
 from debug_utils import DebugDrawer
@@ -28,6 +28,7 @@ class AppBridge(QObject):
     """Signals for cross-thread communication: detector → main thread."""
     result_ready = pyqtSignal(object)   # CascadeDetectionResult
     request_re_select = pyqtSignal()
+    request_toggle_panel = pyqtSignal()
     request_quit = pyqtSignal()
 
 
@@ -47,17 +48,9 @@ class App:
         self._bridge = AppBridge()
         self._bridge.result_ready.connect(self._on_result_main_thread)
         self._bridge.request_re_select.connect(self._start_roi_selection)
+        self._bridge.request_toggle_panel.connect(
+            lambda: self.result_text.toggle_visibility())
         self._bridge.request_quit.connect(self._quit)
-
-        # Overlay
-        self.overlay = Overlay(self.config)
-        self.overlay.signals.close_app.connect(self._quit)
-        self.overlay.signals.open_settings.connect(self._toggle_settings)
-        self.overlay.signals.toggle_debug_save.connect(self._on_toggle_debug_save)
-        self.overlay.signals.toggle_preview.connect(self._on_toggle_preview)
-        self.overlay.signals.toggle_debug_overlay.connect(self._on_toggle_debug_overlay)
-        self.overlay.signals.request_re_select.connect(
-            lambda: self._bridge.request_re_select.emit())
 
         # Debug box overlay (transparent boxes painted over game screen)
         self.debug_box_overlay = DebugBoxOverlay()
@@ -75,6 +68,11 @@ class App:
         self.result_text._signals.position_changed.connect(self._on_result_text_moved)
         self.result_text._signals.size_changed.connect(self._on_result_text_resized)
         self.result_text._signals.open_settings.connect(self._toggle_settings)
+        self.result_text._signals.request_re_select.connect(
+            lambda: self._bridge.request_re_select.emit())
+        self.result_text._signals.toggle_debug_save.connect(self._on_toggle_debug_save)
+        self.result_text._signals.toggle_preview.connect(self._on_toggle_preview)
+        self.result_text._signals.toggle_debug_overlay.connect(self._on_toggle_debug_overlay)
 
         # Detector — callback emits signal via bridge (thread-safe)
         self.detector = CascadeDetector(
@@ -111,7 +109,6 @@ class App:
 
     def run(self) -> None:
         self._register_hotkeys()
-        self.overlay.show_overlay()
         self._start_roi_selection()
         self.detector.start()
         sys.exit(self.app.exec_())
@@ -119,7 +116,6 @@ class App:
     # ── ROI selection ─────────────────────────────────────────────────
 
     def _start_roi_selection(self) -> None:
-        self.overlay.hide()
         selector = ROISelector()
         roi = selector.select()
         if roi is not None:
@@ -129,7 +125,6 @@ class App:
                   f"width={roi['width']}, height={roi['height']}")
         else:
             print("[ROI] Selection cancelled.")
-        self.overlay.show()
 
     # ── result processing (runs on main thread via bridge) ────────────
 
@@ -144,19 +139,19 @@ class App:
         self._update_debug_boxes(result)
 
         if status == "sampling":
-            self.overlay.show_sampling()
+            self.result_text.show_sampling()
         elif status == "matched" and result.label:
+            score = 0
+            votes_text = result.match_votes
             if result.sequence_result is not None:
-                self.overlay.show_match(
-                    result.label, result.sequence_result.final_score,
-                    votes=result.match_votes)
+                score = result.sequence_result.final_score
             elif result.pattern_result is not None:
-                self.overlay.show_match(
-                    result.label, result.pattern_result.score,
-                    votes=result.match_votes)
+                score = result.pattern_result.score
+            self.result_text.show_match(f"{result.label} {score:.2f}"
+                                        + (f" 票数 {votes_text}" if votes_text else ""))
             self.result_text.add_result(result.label)
         elif status == "no_match":
-            self.overlay.show_no_match()
+            self.result_text.show_no_match()
 
     # ── hotkeys (emit signals; bridge queues to main thread) ──────────
 
@@ -167,10 +162,15 @@ class App:
                 lambda: self._bridge.request_re_select.emit(),
                 suppress=False)
             keyboard.add_hotkey(
+                "ctrl+shift+h",
+                lambda: self._bridge.request_toggle_panel.emit(),
+                suppress=False)
+            keyboard.add_hotkey(
                 "ctrl+shift+q",
                 lambda: self._bridge.request_quit.emit(),
                 suppress=False)
-            print("[Hotkeys] Ctrl+Shift+R: re-select ROI | Ctrl+Shift+Q: quit")
+            print("[Hotkeys] Ctrl+Shift+R: re-select ROI | "
+                  "Ctrl+Shift+H: toggle panel | Ctrl+Shift+Q: quit")
         except Exception as e:
             print(f"[WARN] Could not register hotkeys (need admin?): {e}")
 
@@ -183,8 +183,12 @@ class App:
         self.config["debug"]["save_selected_frames"] = enabled
 
         self.debug_drawer.debug["save_debug_frames"] = enabled
-
-        # detector 内部直接读 self.config，所以这里不用额外同步 selected/raw 标志
+        # Persist to file so toggle survives restart
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
         print(f"[Debug] Screenshot saving: {'ON' if enabled else 'OFF'}")
 
     def _on_result_text_moved(self, x: int, y: int) -> None:
@@ -283,7 +287,6 @@ class App:
         self.config = new_config
         self.cache.reload(new_config)
         self.detector.update_config(new_config)
-        self.overlay.reload_config(new_config)
         self.result_text.reload_config(new_config)
         self.debug_drawer = DebugDrawer(new_config)
         self.detector.debug_drawer = self.debug_drawer
@@ -298,7 +301,6 @@ class App:
         self.detector.join(timeout=2.0)
         print("[Shutdown] Closing windows...")
         self.settings_window.close()
-        self.overlay.close()
         self.result_text.close()
         self.debug_box_overlay.close()
         print("[Shutdown] Done.")

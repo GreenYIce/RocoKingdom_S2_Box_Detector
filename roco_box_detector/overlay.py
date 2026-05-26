@@ -380,12 +380,80 @@ class Overlay(QWidget):
 
 # ── Result History Overlay ───────────────────────────────────────────
 
+
+def parse_combined_label(label: str):
+    """Parse '血脉 + 属性' or '血脉+属性' into (bloodline, attribute_or_None)."""
+    label = label.replace("＋", "+")
+    if "+" in label:
+        parts = label.split("+", 1)
+        return parts[0].strip(), parts[1].strip()
+    return label.strip(), None
+
+
+class _ChipLabel(QLabel):
+    """Rounded chip for bloodline/attribute display."""
+    def __init__(self, text: str, bg_color: QColor, parent=None):
+        super().__init__(text, parent)
+        r, g, b, a = bg_color.red(), bg_color.green(), bg_color.blue(), bg_color.alpha()
+        self.setStyleSheet(
+            f"QLabel {{"
+            f"  background: rgba({r},{g},{b},{a});"
+            f"  color: #111;"
+            f"  border-radius: 4px;"
+            f"  padding: 2px 8px;"
+            f"  font-size: 14px;"
+            f"  font-weight: bold;"
+            f"}}"
+        )
+
+
+class _HistoryItem(QWidget):
+    """A single row: [bloodline chip] + [attribute chip]."""
+
+    def __init__(self, bloodline: str, attribute: str,
+                 bl_color: QColor, attr_color: QColor, plus_color: str,
+                 parent=None):
+        super().__init__(parent)
+        self.setObjectName("RTO_history_item")
+        self.setStyleSheet(
+            "#RTO_history_item { background: rgba(255,255,255,18); border-radius: 8px; }"
+            "#RTO_history_item:hover { background: rgba(255,255,255,32); }"
+        )
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
+
+        bl_chip = _ChipLabel(bloodline, bl_color)
+        layout.addWidget(bl_chip)
+
+        plus = QLabel("+")
+        plus.setStyleSheet(
+            f"color: {plus_color}; font-size: 14px; background: transparent;")
+        layout.addWidget(plus)
+
+        if attribute:
+            attr_chip = _ChipLabel(attribute, attr_color)
+            layout.addWidget(attr_chip)
+        else:
+            unknown = QLabel("?")
+            unknown.setStyleSheet(
+                "color: #666; font-size: 14px; background: transparent;")
+            layout.addWidget(unknown)
+
+        layout.addStretch()
+
+
 class _RTOSignals(QObject):
     add_result = pyqtSignal(str)
     clear_results = pyqtSignal()
     position_changed = pyqtSignal(int, int)
     size_changed = pyqtSignal(int, int)
     open_settings = pyqtSignal()
+    request_re_select = pyqtSignal()
+    toggle_debug_save = pyqtSignal(bool)
+    toggle_preview = pyqtSignal(bool)
+    toggle_debug_overlay = pyqtSignal(bool)
+    set_status_text = pyqtSignal(str)
 
 
 def _parse_rgba(s: str) -> QColor:
@@ -398,61 +466,60 @@ def _parse_rgba(s: str) -> QColor:
 
 
 class ResultTextOverlay(QWidget):
-    """Semi-transparent scrollable history panel.
+    """Recognition history panel with 3-zone layout.
 
-    Widget tree:
-      ResultTextOverlay  (frameless, transparent, topmost)
-       └─ #RTO_panel    (QWidget — semi-transparent bg, border, radius)
-            ├─ header   (QWidget — title, count, clear btn)
-            ├─ QScrollArea (transparent, scrollbar styled)
-            │    └─ content (QWidget — record QLabels)
-            └─ [QSizeGrip at outer level, bottom-right]
+    Zones:
+      HeaderBar   — title, status, action buttons
+      HistoryArea — scrollable chip-style [血脉] + [属性] items
+      CounterArea — bloodline counts | attribute counts
     """
 
-    _HEADER_H = 28
+    _HEADER_H = 40
 
     def __init__(self, config: dict):
         super().__init__()
-        self.config = config  # full config for ROI categorization
+        self.config = config
         self._signals = _RTOSignals()
         cfg = config.get("result_text_overlay", {})
 
-        # Force-topmost timer for fullscreen games
+        # Timers
         self._topmost_timer = QTimer()
         self._topmost_timer.setInterval(2000)
         self._topmost_timer.timeout.connect(self._force_topmost)
         self._topmost_timer.start()
 
+        self._alt_timer = QTimer()
+        self._alt_timer.setInterval(100)
+        self._alt_timer.timeout.connect(self._check_alt_key)
+        self._alt_timer.start()
+
+        # Config
         self._enabled = cfg.get("enabled", True)
         self._font_family = cfg.get("font_family", "Microsoft YaHei")
-        self._font_size = cfg.get("font_size", 28)
-        self._font_size_step = cfg.get("font_size_step", 3)
-        self._min_font_size = cfg.get("min_font_size", 14)
         self._default_color = QColor(cfg.get("default_color", "#FFD700"))
-        self._outline_color = QColor(cfg.get("outline_color", "#000000"))
-        self._outline_width = cfg.get("outline_width", 2)
-        self._item_spacing = cfg.get("item_spacing", 42)
-        self._max_items = cfg.get("max_items", 100)
-        self._text_template = cfg.get("text_template", "{label}")
-        self._click_through = cfg.get("click_through", False)
-        self._show_counts = cfg.get("show_counts", True)
-        self._count_font_size = cfg.get("count_font_size", 9)
         self._label_colors: dict = cfg.get("label_colors", {})
+        self._bloodline_colors: dict = cfg.get("bloodline_colors", {})
+        self._attribute_colors: dict = cfg.get("attribute_colors", {})
+        self._plus_color = cfg.get("plus_color", "#DDDDDD")
+        self._count_color = cfg.get("count_color", "#AAAAAA")
+        self._max_items = cfg.get("max_items", 104)
+        self._show_counter = cfg.get("show_counter_area", True)
+        self._counter_top_n = cfg.get("counter_top_n", 5)
 
-        self._bg_color = _parse_rgba(cfg.get("background_color", "rgba(0,0,0,150)"))
-        self._border_color = _parse_rgba(cfg.get("border_color", "rgba(255,255,255,60)"))
+        self._bg_color = _parse_rgba(cfg.get("background_color", "rgba(8,10,16,190)"))
+        self._border_color = _parse_rgba(cfg.get("border_color", "rgba(255,255,255,45)"))
         self._border_radius = cfg.get("border_radius", 12)
         self._padding = cfg.get("padding", 10)
         self._title_text = cfg.get("title", "识别记录")
-        self._scrollbar_width = cfg.get("scrollbar_width", 6)
-        self._min_w = cfg.get("min_width", 180)
-        self._min_h = cfg.get("min_height", 120)
+        self._scrollbar_width = cfg.get("scrollbar_width", 7)
+        self._min_w = cfg.get("min_width", 220)
+        self._min_h = cfg.get("min_height", 160)
 
+        # Position / size
         screen = QApplication.primaryScreen()
         geom = screen.geometry() if screen else None
-        self._width = cfg.get("width", 280)
-        self._height = cfg.get("height", 360)
-        # Auto-position: right edge, vertically centered
+        self._width = cfg.get("width", 360)
+        self._height = cfg.get("height", 450)
         if geom:
             def_x = max(0, geom.width() - self._width - 30)
             def_y = max(0, (geom.height() - self._height) // 2)
@@ -460,33 +527,35 @@ class ResultTextOverlay(QWidget):
             def_x, def_y = 800, 300
         config_x = cfg.get("x", def_x)
         config_y = cfg.get("y", def_y)
-        # If saved position is off-screen, fall back to auto
         if geom and (config_x < -500 or config_x > geom.width() + 200
                      or config_y < -500 or config_y > geom.height() + 200):
-            print(f"[ResultText] Saved position ({config_x},{config_y}) off-screen, "
-                  f"using ({def_x},{def_y})")
             self._pos_x = def_x
             self._pos_y = def_y
         else:
             self._pos_x = config_x
             self._pos_y = config_y
 
+        # State
         self._records: list = []
-        self._record_labels: list = []
-
+        self._history_items: list = []
+        self._bloodline_counts: dict = {}
+        self._attribute_counts: dict = {}
         self._dragging = False
         self._drag_start = QPoint()
+
+        self.setCursor(Qt.BlankCursor)
 
         self._build_ui()
         self.resize(self._width, self._height)
         self.move(self._pos_x, self._pos_y)
-        self._update_click_through()
 
+        # Signal wiring
         self._signals.add_result.connect(self._do_add)
         self._signals.clear_results.connect(self._do_clear)
+        self._signals.set_status_text.connect(self._do_set_status)
 
         if self._enabled:
-            QWidget.show(self)  # auto-show empty panel on startup
+            QWidget.show(self)
 
     # ── build ─────────────────────────────────────────────────────────
 
@@ -495,14 +564,14 @@ class ResultTextOverlay(QWidget):
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setMinimumSize(self._min_w, self._min_h)
 
-        # Outer layout → pins panel to outer edges
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # ── panel container (has the bg / border / radius) ──
+        # ── panel ──
         self._panel = QWidget()
         self._panel.setObjectName("RTO_panel")
         self._panel.setAttribute(Qt.WA_StyledBackground, True)
@@ -510,63 +579,67 @@ class ResultTextOverlay(QWidget):
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.setSpacing(0)
 
-        # ── header ──
-        header = QWidget()
-        header.setObjectName("RTO_header")
-        header.setFixedHeight(self._HEADER_H + self._padding)
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(self._padding, 0, self._padding, 0)
+        # ── header bar ──
+        self._header_bar = QWidget()
+        self._header_bar.setObjectName("RTO_header")
+        self._header_bar.setFixedHeight(self._HEADER_H)
+        hl = QHBoxLayout(self._header_bar)
+        hl.setContentsMargins(self._padding, 4, self._padding, 2)
         hl.setSpacing(4)
 
         self._title_lbl = QLabel(self._title_text)
-        self._title_lbl.setStyleSheet("color: #aaa; font-size: 11px; background: transparent;")
+        self._title_lbl.setStyleSheet(
+            "color: #ccc; font-size: 12px; background: transparent; font-weight: bold;")
         hl.addWidget(self._title_lbl)
 
-        self._count_lbl = QLabel("")
-        self._count_lbl.setStyleSheet("color: #666; font-size: 10px; background: transparent;")
-        hl.addWidget(self._count_lbl)
+        self._status_lbl = QLabel("● 运行中")
+        self._status_lbl.setStyleSheet(
+            "color: #aaa; font-size: 11px; background: transparent;")
+        hl.addWidget(self._status_lbl)
 
         hl.addStretch()
 
-        clear_btn = QPushButton("清空")
-        clear_btn.setFixedSize(32, 22)
-        clear_btn.setCursor(Qt.PointingHandCursor)
-        clear_btn.setToolTip("清空识别记录")
-        clear_btn.setStyleSheet(
-            "QPushButton { color: #888; background: transparent; border: none; "
-            "font-size: 11px; }"
-            "QPushButton:hover { color: #fff; }"
-        )
+        # Preview toggle
+        self._status_preview_on = False
+        self._preview_btn = self._make_header_btn("◌", "预览窗口开关")
+        self._preview_btn.clicked.connect(self._toggle_status_preview)
+        hl.addWidget(self._preview_btn)
+
+        # Debug save toggle
+        self._status_debug_on = False
+        self._debug_btn = self._make_header_btn("○", "调试截图开关")
+        self._debug_btn.clicked.connect(self._toggle_status_debug)
+        hl.addWidget(self._debug_btn)
+
+        # Debug overlay toggle
+        self._status_overlay_on = False
+        self._overlay_btn = self._make_header_btn("□", "画面覆盖框开关")
+        self._overlay_btn.clicked.connect(self._toggle_status_overlay)
+        hl.addWidget(self._overlay_btn)
+
+        # Re-select ROI
+        reselect = self._make_header_btn("↻", "重新框选区域")
+        reselect.clicked.connect(lambda: self._signals.request_re_select.emit())
+        hl.addWidget(reselect)
+
+        # Settings
+        gear = self._make_header_btn("⚙", "设置面板")
+        gear.clicked.connect(lambda: self._signals.open_settings.emit())
+        hl.addWidget(gear)
+
+        # Clear
+        clear_btn = self._make_header_btn("清空", "清空识别记录")
         clear_btn.clicked.connect(self._do_clear)
         hl.addWidget(clear_btn)
 
-        gear_btn = QPushButton("⚙")
-        gear_btn.setFixedSize(22, 22)
-        gear_btn.setCursor(Qt.PointingHandCursor)
-        gear_btn.setToolTip("设置面板")
-        gear_btn.setStyleSheet(
-            "QPushButton { color: #888; background: transparent; border: none; "
-            "font-size: 11px; }"
-            "QPushButton:hover { color: #fff; }"
-        )
-        gear_btn.clicked.connect(lambda: self._signals.open_settings.emit())
-        hl.addWidget(gear_btn)
-
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(22, 22)
-        close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.setToolTip("关闭面板")
-        close_btn.setStyleSheet(
-            "QPushButton { color: #888; background: transparent; border: none; "
-            "font-size: 12px; }"
-            "QPushButton:hover { color: #fff; }"
-        )
+        # Close
+        close_btn = self._make_header_btn("✕", "关闭面板")
         close_btn.clicked.connect(lambda: QWidget.hide(self))
         hl.addWidget(close_btn)
 
-        panel_layout.addWidget(header)
+        panel_layout.addWidget(self._header_bar)
 
-        # ── QScrollArea ──
+        # ── scroll area ──
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -576,27 +649,44 @@ class ResultTextOverlay(QWidget):
         self._content = QWidget()
         self._content.setObjectName("RTO_content")
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(
-            self._padding, 0, self._padding, self._padding)
-        self._content_layout.setSpacing(
-            max(2, self._item_spacing - self._font_size - self._outline_width * 2))
+        self._content_layout.setContentsMargins(self._padding, 6, self._padding, 4)
+        self._content_layout.setSpacing(4)
         self._content_layout.addStretch()
         self._scroll.setWidget(self._content)
 
         panel_layout.addWidget(self._scroll, 1)
 
-        # ── count footer ──
-        self._count_footer = QLabel("")
-        self._count_footer.setObjectName("RTO_footer")
-        self._count_footer.setStyleSheet(
-            f"color: #999; font-size: {self._count_font_size}px; "
-            "background: transparent; padding: 0 4px;")
-        self._count_footer.setWordWrap(True)
-        panel_layout.addWidget(self._count_footer)
+        # ── counter area ──
+        self._counter_area = QWidget()
+        self._counter_area.setObjectName("RTO_counter")
+        counter_layout = QHBoxLayout(self._counter_area)
+        counter_layout.setContentsMargins(self._padding, 6, self._padding, 6)
+        counter_layout.setSpacing(12)
+
+        self._bl_counter = QLabel("")
+        self._bl_counter.setObjectName("RTO_bl_counter")
+        self._bl_counter.setStyleSheet(
+            "color: #aaa; font-size: 11px; background: transparent;")
+        self._bl_counter.setWordWrap(True)
+        self._bl_counter.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        counter_layout.addWidget(self._bl_counter, 1)
+
+        self._attr_counter = QLabel("")
+        self._attr_counter.setObjectName("RTO_attr_counter")
+        self._attr_counter.setStyleSheet(
+            "color: #aaa; font-size: 11px; background: transparent;")
+        self._attr_counter.setWordWrap(True)
+        self._attr_counter.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        counter_layout.addWidget(self._attr_counter, 1)
+
+        panel_layout.addWidget(self._counter_area)
+
+        if not self._show_counter:
+            self._counter_area.hide()
 
         outer.addWidget(self._panel)
 
-        # ── QSizeGrip (on outer, bottom-right) ──
+        # ── size grip ──
         self._size_grip = QSizeGrip(self)
         self._size_grip.setFixedSize(16, 16)
         self._size_grip.setStyleSheet("QSizeGrip { background: transparent; }")
@@ -604,8 +694,23 @@ class ResultTextOverlay(QWidget):
         # ── stylesheets ──
         self._panel.setStyleSheet(self._panel_style())
         self._scroll.setStyleSheet(self._scroll_style())
+        self._header_bar.setStyleSheet(self._header_style())
+        self._counter_area.setStyleSheet(self._counter_style())
+        self._panel.repaint()
 
-    # ── stylesheets ───────────────────────────────────────────────────
+    def _make_header_btn(self, text: str, tooltip: str):
+        btn = QPushButton(text)
+        btn.setFixedSize(28, 28)
+        btn.setToolTip(tooltip)
+        btn.setStyleSheet(
+            "QPushButton { color: #888; background: transparent; border: none; "
+            "font-size: 14px; padding: 0; }"
+            "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
+            "border-radius: 4px; }"
+        )
+        return btn
+
+    # ── styles ────────────────────────────────────────────────────────
 
     def _panel_style(self) -> str:
         bg = self._bg_color
@@ -620,17 +725,24 @@ class ResultTextOverlay(QWidget):
             f"}}"
         )
 
+    def _header_style(self) -> str:
+        return (
+            "#RTO_header {"
+            "  background: transparent;"
+            "  border-bottom: 1px solid rgba(255,255,255,35);"
+            "}"
+        )
+
     def _scroll_style(self) -> str:
         w = self._scrollbar_width
         return (
             f"QScrollArea {{ background: transparent; border: none; }}"
             f"QScrollArea > QWidget > QWidget {{ background: transparent; }}"
-            f"QScrollArea > QWidget > QWidget > QLabel {{ background: transparent; }}"
             f"QScrollBar:vertical {{"
             f"  background: transparent; width: {w}px; margin: 4px 2px 4px 2px;"
             f"}}"
             f"QScrollBar::handle:vertical {{"
-            f"  background: rgba(255,255,255,50); border-radius: {w//2}px;"
+            f"  background: rgba(255,255,255,50); border-radius: {w // 2}px;"
             f"  min-height: 30px;"
             f"}}"
             f"QScrollBar::handle:vertical:hover {{"
@@ -644,24 +756,79 @@ class ResultTextOverlay(QWidget):
             f"}}"
         )
 
-    def _update_click_through(self):
-        if self._click_through:
-            self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        else:
-            self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+    def _counter_style(self) -> str:
+        return (
+            "#RTO_counter {"
+            "  background: rgba(0,0,0,60);"
+            "  border-top: 1px solid rgba(255,255,255,30);"
+            "}"
+        )
 
-    # ── public API ────────────────────────────────────────────────────
+    # ── window management ─────────────────────────────────────────────
 
     def _force_topmost(self):
-        """Windows: forcefully keep window on top using SetWindowPos."""
         try:
             import ctypes
             hwnd = int(self.winId())
-            # HWND_TOPMOST = -1, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
             ctypes.windll.user32.SetWindowPos(
                 hwnd, -1, 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010)
         except Exception:
             pass
+
+    def _check_alt_key(self):
+        """Alt held → interactive + visible cursor; released → click-through + hidden cursor."""
+        try:
+            import ctypes
+            alt_down = ctypes.windll.user32.GetAsyncKeyState(0x12) & 0x8000
+            if alt_down and self.isVisible():
+                if self.testAttribute(Qt.WA_TransparentForMouseEvents):
+                    self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+                    self.setCursor(Qt.ArrowCursor)
+                    self._panel.setStyleSheet(self._panel_style().replace(
+                        "border: 1px solid",
+                        "border: 2px solid rgba(255,255,255,180);\n  border: 1px solid"))
+                    self._panel.repaint()
+            elif not alt_down:
+                if not self.testAttribute(Qt.WA_TransparentForMouseEvents):
+                    self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+                    self.setCursor(Qt.BlankCursor)
+                    self._panel.setStyleSheet(self._panel_style())
+        except Exception:
+            pass
+
+    # ── header toggles ────────────────────────────────────────────────
+
+    def _toggle_status_debug(self):
+        self._status_debug_on = not self._status_debug_on
+        self._debug_btn.setText("⬤" if self._status_debug_on else "○")
+        self._debug_btn.setStyleSheet(
+            f"QPushButton {{ color: {'#e04040' if self._status_debug_on else '#888'}; "
+            "background: transparent; border: none; font-size: 14px; padding: 0; }"
+            "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
+            "border-radius: 4px; }")
+        self._signals.toggle_debug_save.emit(self._status_debug_on)
+
+    def _toggle_status_preview(self):
+        self._status_preview_on = not self._status_preview_on
+        self._preview_btn.setText("🔍" if self._status_preview_on else "◌")
+        self._preview_btn.setStyleSheet(
+            f"QPushButton {{ color: {'#66aaff' if self._status_preview_on else '#888'}; "
+            "background: transparent; border: none; font-size: 14px; padding: 0; }"
+            "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
+            "border-radius: 4px; }")
+        self._signals.toggle_preview.emit(self._status_preview_on)
+
+    def _toggle_status_overlay(self):
+        self._status_overlay_on = not self._status_overlay_on
+        self._overlay_btn.setText("▣" if self._status_overlay_on else "□")
+        self._overlay_btn.setStyleSheet(
+            f"QPushButton {{ color: {'#ff8844' if self._status_overlay_on else '#888'}; "
+            "background: transparent; border: none; font-size: 14px; padding: 0; }"
+            "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
+            "border-radius: 4px; }")
+        self._signals.toggle_debug_overlay.emit(self._status_overlay_on)
+
+    # ── public API ────────────────────────────────────────────────────
 
     def add_result(self, label: str) -> None:
         if not self._enabled:
@@ -671,148 +838,142 @@ class ResultTextOverlay(QWidget):
     def clear_results(self) -> None:
         self._signals.clear_results.emit()
 
-    # ── slots (main thread) ───────────────────────────────────────────
+    def toggle_visibility(self):
+        if self.isVisible():
+            QWidget.hide(self)
+        else:
+            QWidget.show(self)
+
+    def set_status_text(self, text: str) -> None:
+        self._signals.set_status_text.emit(text)
+
+    def show_sampling(self):
+        self.set_status_text("正在采样识别...")
+        self._status_lbl.setStyleSheet(
+            "color: #66aaff; font-size: 11px; background: transparent;")
+
+    def show_match(self, text: str):
+        self.set_status_text(f"识别到：{text}")
+        self._status_lbl.setStyleSheet(
+            "color: #00954f; font-size: 11px; background: transparent;")
+
+    def show_no_match(self):
+        self.set_status_text("未识别到目标")
+        self._status_lbl.setStyleSheet(
+            "color: #aaa; font-size: 11px; background: transparent;")
+
+    # ── slots ─────────────────────────────────────────────────────────
+
+    def _do_set_status(self, text: str):
+        self._status_lbl.setText(text)
 
     def _do_add(self, label: str):
+        bloodline, attribute = parse_combined_label(label)
+
         self._records.append(label)
         if len(self._records) > self._max_items:
             self._records.pop(0)
-            if self._record_labels:
-                w = self._record_labels.pop(0)
+            if self._history_items:
+                w = self._history_items.pop(0)
                 self._content_layout.removeWidget(w)
                 w.deleteLater()
 
-        lbl = self._make_record_label(label)
-        self._record_labels.append(lbl)
+        bl_color = self._resolve_color(bloodline, is_bloodline=True)
+        attr_color = self._resolve_color(attribute, is_bloodline=False) if attribute else self._default_color
+
+        item = _HistoryItem(bloodline, attribute, bl_color, attr_color, self._plus_color)
+        self._history_items.append(item)
         self._content_layout.insertWidget(
-            self._content_layout.count() - 1, lbl)
+            self._content_layout.count() - 1, item)
 
-        # Font size: newest (bottom) = full size, all above = one step smaller
-        n = len(self._record_labels)
-        for i, w in enumerate(self._record_labels):
-            pos_from_bottom = n - 1 - i
-            size = (self._font_size if pos_from_bottom == 0
-                    else max(self._min_font_size,
-                             self._font_size - self._font_size_step))
-            font = w.font()
-            font.setPointSize(size)
-            w.setFont(font)
+        # Update counts
+        self._bloodline_counts[bloodline] = self._bloodline_counts.get(bloodline, 0) + 1
+        if attribute:
+            self._attribute_counts[attribute] = self._attribute_counts.get(attribute, 0) + 1
 
-        self._count_lbl.setText(f"({len(self._records)})")
-        self._update_count_footer()
+        self._refresh_counter_area()
         QWidget.show(self)
         QTimer.singleShot(20, self._scroll_to_bottom)
 
-    def _update_count_footer(self):
-        if not self._show_counts or not self._records:
-            self._count_footer.setText("")
-            return
-        from collections import Counter
-
-        # Split combined labels and categorize
-        counts1 = Counter()
-        counts2 = Counter()
-        seen1 = {}
-        ordered1 = []
-        seen2 = {}
-        ordered2 = []
-
-        for combined in self._records:
-            parts = combined.split(" + ")
-            for p in parts:
-                p = p.strip()
-                if self._is_roi2_label(p):
-                    if p not in seen2:
-                        seen2[p] = True
-                        ordered2.append(p)
-                    counts2[p] += 1
-                else:
-                    if p not in seen1:
-                        seen1[p] = True
-                        ordered1.append(p)
-                    counts1[p] += 1
-
-        rows = []
-        if ordered1:
-            row = [f"<span style='color:#aaa'>ROI1:</span>"]
-            for l in ordered1:
-                c = self._label_color(l)
-                row.append(
-                    f"<span style='color:{c.name()}'>{l}×{counts1[l]}</span>")
-            rows.append("&nbsp;&nbsp;".join(row))
-
-        if ordered2:
-            row = [f"<span style='color:#aaa'>ROI2:</span>"]
-            for l in ordered2:
-                c = self._label_color(l)
-                row.append(
-                    f"<span style='color:{c.name()}'>{l}×{counts2[l]}</span>")
-            rows.append("&nbsp;&nbsp;".join(row))
-
-        self._count_footer.setText(
-            f"<html><body style='margin:0;padding:0'>"
-            f"{'<br>'.join(rows)}</body></html>")
-
-    def _is_roi2_label(self, label: str) -> bool:
-        """Check if a label belongs to patterns_2 or is the roi_fallback text."""
-        p2 = self.config.get("patterns_2", {})
-        if label in p2:
-            return True
-        rto = self.config.get("result_text_overlay", {})
-        fallback = rto.get("roi_fallback", "")
-        return bool(fallback and label == fallback)
-
-    def _scroll_to_bottom(self):
-        sb = self._scroll.verticalScrollBar()
-        sb.setValue(sb.maximum())
-
     def _do_clear(self):
         self._records.clear()
-        for w in self._record_labels:
+        for w in self._history_items:
             self._content_layout.removeWidget(w)
             w.deleteLater()
-        self._record_labels.clear()
-        self._count_lbl.setText("")
-        self._count_footer.setText("")
+        self._history_items.clear()
+        self._bloodline_counts.clear()
+        self._attribute_counts.clear()
+        self._refresh_counter_area()
 
-    def _make_record_label(self, label: str) -> QLabel:
-        """Create a QLabel with per-pattern coloring for 'X + Y' combined labels."""
-        fallback = self.config.get("result_text_overlay", {}).get("roi_fallback", "")
-        parts = label.split(" + ")
-        if len(parts) == 2:
-            c1 = ("#888" if parts[0] == fallback
-                  else self._label_color(parts[0]).name())
-            c2 = ("#888" if parts[1] == fallback
-                  else self._label_color(parts[1]).name())
-            text = (f"<span style='color:{c1}'>{parts[0]}</span>"
-                    f" <span style='color:#aaa'>+</span> "
-                    f"<span style='color:{c2}'>{parts[1]}</span>")
+    # ── counter ───────────────────────────────────────────────────────
+
+    def _refresh_counter_area(self):
+        if not self._show_counter:
+            return
+
+        top_n = self._counter_top_n
+
+        # Bloodline column
+        bl_sorted = sorted(
+            self._bloodline_counts.items(), key=lambda x: -x[1])[:top_n]
+        if bl_sorted:
+            bl_rows = ["<span style='color:#aaa;font-size:10px;'>血脉统计</span>"]
+            for name, cnt in bl_sorted:
+                c = self._resolve_color(name, is_bloodline=True)
+                bl_rows.append(
+                    f"<span style='color:{c.name()}'>{name}</span>"
+                    f"<span style='color:{self._count_color}'> ×{cnt}</span>")
+            self._bl_counter.setText(
+                "<html><body style='margin:0;padding:0'>"
+                + "<br>".join(bl_rows) + "</body></html>")
         else:
-            c = "#888" if label == fallback else self._label_color(label).name()
-            text = f"<span style='color:{c}'>{label}</span>"
+            self._bl_counter.setText("")
 
-        lbl = QLabel(text)
-        lbl.setTextFormat(1)  # Qt.RichText
-        lbl.setFont(QFont(self._font_family, self._font_size))
-        lbl.setStyleSheet(
-            f"QLabel {{ background: transparent; "
-            f"font-family: '{self._font_family}'; "
-            f"font-size: {self._font_size}px; }}"
-        )
-        return lbl
+        # Attribute column
+        attr_sorted = sorted(
+            self._attribute_counts.items(), key=lambda x: -x[1])[:top_n]
+        if attr_sorted:
+            attr_rows = ["<span style='color:#aaa;font-size:10px;'>属性统计</span>"]
+            for name, cnt in attr_sorted:
+                c = self._resolve_color(name, is_bloodline=False)
+                attr_rows.append(
+                    f"<span style='color:{c.name()}'>{name}</span>"
+                    f"<span style='color:{self._count_color}'> ×{cnt}</span>")
+            self._attr_counter.setText(
+                "<html><body style='margin:0;padding:0'>"
+                + "<br>".join(attr_rows) + "</body></html>")
+        else:
+            self._attr_counter.setText("")
 
-    def _label_color(self, label: str) -> QColor:
-        hex_str = self._label_colors.get(label)
-        if hex_str:
-            return QColor(hex_str)
+    # ── color resolution ──────────────────────────────────────────────
+
+    def _resolve_color(self, label: str, is_bloodline: bool = True) -> QColor:
+        if not label:
+            return self._default_color
+        key = "bloodline_colors" if is_bloodline else "attribute_colors"
+        colors = self.config.get("result_text_overlay", {}).get(key, {})
+        if label in colors:
+            return QColor(colors[label])
+        if label in self._label_colors:
+            return QColor(self._label_colors[label])
         return self._default_color
 
-    # ── drag (on header only) ─────────────────────────────────────────
+    # ── drag (on header bar only) ─────────────────────────────────────
 
     def _in_header(self, y: int) -> bool:
-        return y <= self._HEADER_H + self._padding
+        return y <= self._HEADER_H
+
+    def _alt_held(self) -> bool:
+        try:
+            import ctypes
+            return bool(ctypes.windll.user32.GetAsyncKeyState(0x12) & 0x8000)
+        except Exception:
+            return False
 
     def mousePressEvent(self, event):
+        if not self._alt_held():
+            event.ignore()
+            return
         if event.button() == Qt.LeftButton and self._in_header(event.y()):
             self._dragging = True
             self._drag_start = event.globalPos() - self.frameGeometry().topLeft()
@@ -821,6 +982,9 @@ class ResultTextOverlay(QWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if not self._alt_held():
+            event.ignore()
+            return
         if self._dragging:
             new_pos = event.globalPos() - self._drag_start
             self.move(new_pos)
@@ -829,6 +993,9 @@ class ResultTextOverlay(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if not self._alt_held():
+            event.ignore()
+            return
         if event.button() == Qt.LeftButton and self._dragging:
             self._dragging = False
             self._pos_x = self.x()
@@ -837,8 +1004,6 @@ class ResultTextOverlay(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
-
-    # ── resize ────────────────────────────────────────────────────────
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -850,30 +1015,26 @@ class ResultTextOverlay(QWidget):
                 self.height() - self._size_grip.height() - 2)
         self._signals.size_changed.emit(self._width, self._height)
 
+    def _scroll_to_bottom(self):
+        sb = self._scroll.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
     # ── config reload ─────────────────────────────────────────────────
 
     def reload_config(self, config: dict):
-        self.config = config  # update full config for ROI categorization
+        self.config = config
         cfg = config.get("result_text_overlay", {})
-        old_cfg = config.get("result_text_overlay", {})  # snapshot before mutation
         self._enabled = cfg.get("enabled", self._enabled)
         self._font_family = cfg.get("font_family", self._font_family)
-        self._font_size = cfg.get("font_size", self._font_size)
-        self._font_size_step = cfg.get("font_size_step", self._font_size_step)
-        self._min_font_size = cfg.get("min_font_size", self._min_font_size)
         self._default_color = QColor(cfg.get("default_color", self._default_color.name()))
-        self._outline_color = QColor(cfg.get("outline_color", self._outline_color.name()))
-        self._outline_width = cfg.get("outline_width", self._outline_width)
-        self._item_spacing = cfg.get("item_spacing", self._item_spacing)
-        self._max_items = cfg.get("max_items", self._max_items)
-        self._text_template = cfg.get("text_template", self._text_template)
-        self._click_through = cfg.get("click_through", self._click_through)
-        self._show_counts = cfg.get("show_counts", self._show_counts)
-        self._count_font_size = cfg.get("count_font_size", self._count_font_size)
-        self._count_footer.setStyleSheet(
-            f"color: #999; font-size: {self._count_font_size}px; "
-            "background: transparent; padding: 0 4px;")
         self._label_colors = cfg.get("label_colors", self._label_colors)
+        self._bloodline_colors = cfg.get("bloodline_colors", self._bloodline_colors)
+        self._attribute_colors = cfg.get("attribute_colors", self._attribute_colors)
+        self._plus_color = cfg.get("plus_color", self._plus_color)
+        self._count_color = cfg.get("count_color", self._count_color)
+        self._max_items = cfg.get("max_items", self._max_items)
+        self._show_counter = cfg.get("show_counter_area", self._show_counter)
+        self._counter_top_n = cfg.get("counter_top_n", self._counter_top_n)
         self._bg_color = _parse_rgba(cfg.get("background_color",
             f"rgba({self._bg_color.red()},{self._bg_color.green()},"
             f"{self._bg_color.blue()},{self._bg_color.alpha()})"))
@@ -889,52 +1050,32 @@ class ResultTextOverlay(QWidget):
         w = cfg.get("width", self._width)
         h = cfg.get("height", self._height)
         self._width, self._height = w, h
-        self.resize(w, h)  # only resize, never move — position is drag-managed
+        self.resize(w, h)
         self.setMinimumSize(self._min_w, self._min_h)
         self._title_lbl.setText(self._title_text)
         self._panel.setStyleSheet(self._panel_style())
         self._scroll.setStyleSheet(self._scroll_style())
-        self._update_click_through()
-        self._content_layout.setSpacing(
-            max(2, self._item_spacing - self._font_size - self._outline_width * 2))
-        # Only update labels if font settings actually changed
-        old_family = old_cfg.get("font_family", self._font_family)
-        old_size = old_cfg.get("font_size", self._font_size)
-        old_step = old_cfg.get("font_size_step", self._font_size_step)
-        old_min = old_cfg.get("min_font_size", self._min_font_size)
-        has_changed = (self._font_family != old_family or self._font_size != old_size
-                       or self._font_size_step != old_step or self._min_font_size != old_min)
-        if has_changed:
-            n = len(self._record_labels)
-            for i, (lbl, rec_label) in enumerate(zip(self._record_labels, self._records)):
-                pos_from_bottom = n - 1 - i
-                size = (self._font_size if pos_from_bottom == 0
-                        else max(self._min_font_size,
-                                 self._font_size - self._font_size_step))
-                # Rebuild rich-text label with per-part colors
-                parts = rec_label.split(" + ")
-                if len(parts) == 2:
-                    c1 = self._label_color(parts[0]).name()
-                    c2 = self._label_color(parts[1]).name()
-                    text = (f"<span style='color:{c1}'>{parts[0]}</span>"
-                            f" <span style='color:#aaa'>+</span> "
-                            f"<span style='color:{c2}'>{parts[1]}</span>")
-                else:
-                    text = f"<span style='color:{self._label_color(rec_label).name()}'>{rec_label}</span>"
-                lbl.setText(text)
-                font = lbl.font()
-                font.setFamily(self._font_family)
-                font.setPointSize(size)
-                lbl.setFont(font)
-                lbl.setStyleSheet(
-                    f"QLabel {{ background: transparent; "
-                    f"font-family: '{self._font_family}'; "
-                    f"font-size: {size}px; }}")
-        elif self._font_family != old_family:
-            for lbl in self._record_labels:
-                font = lbl.font()
-                font.setFamily(self._font_family)
-                lbl.setFont(font)
+        self._header_bar.setStyleSheet(self._header_style())
+        self._counter_area.setStyleSheet(self._counter_style())
+        if self._show_counter:
+            self._counter_area.show()
+        else:
+            self._counter_area.hide()
+        # Rebuild all history items with new color config
+        old_items = self._history_items[:]
+        self._history_items.clear()
+        for rec_label in self._records:
+            bloodline, attribute = parse_combined_label(rec_label)
+            bl_color = self._resolve_color(bloodline, is_bloodline=True)
+            attr_color = self._resolve_color(attribute, is_bloodline=False) if attribute else self._default_color
+            new_item = _HistoryItem(bloodline, attribute, bl_color, attr_color, self._plus_color)
+            self._history_items.append(new_item)
+            self._content_layout.insertWidget(
+                self._content_layout.count() - 1, new_item)
+        for w in old_items:
+            self._content_layout.removeWidget(w)
+            w.deleteLater()
+        self._refresh_counter_area()
 
 
 # ── Debug Box Overlay ──────────────────────────────────────────────────

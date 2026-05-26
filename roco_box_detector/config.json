@@ -12,12 +12,13 @@
       "templates/box_anchor/15dd989e-f407-45bc-aba3-4052abe7b61e.png",
       "templates/box_anchor/9468b5b8-59c8-4725-aec6-141018228694.png",
       "templates/box_anchor/837d0f4c-aa64-4a05-a082-f46b21767ba1.png",
+      "templates/box_anchor/c322f103-4bb2-4d04-9467-b51fae93001e.png",
       "templates/box_anchor/d957670d-5d24-462c-96db-1dcfbbe12773.png",
       "templates/box_anchor/fab2bb51-c9a8-467f-8a92-018066e9d7da.png"
     ],
     "threshold": 0.7,
-    "scale_min": 0.6,
-    "scale_max": 0.9,
+    "scale_min": 0.75,
+    "scale_max": 1.25,
     "scale_steps": 6,
     "use_grayscale": true,
     "use_canny": false,
@@ -50,9 +51,9 @@
         "templates/patterns/普通9.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -66,9 +67,9 @@
         "templates/patterns/奇异1.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -79,9 +80,9 @@
         "templates/patterns/污染3.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -94,9 +95,9 @@
         "templates/patterns/混血5.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -106,9 +107,9 @@
         "templates/patterns/异色2.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     }
@@ -117,24 +118,26 @@
     "物防": {
       "templates": [
         "templates/patterns_2/物防1.png",
-        "templates/patterns_2/物防2.png"
+        "templates/patterns_2/物防2.png",
+        "templates/patterns_2/物防3.png"
       ],
       "threshold": 0.6,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
     "魔防": {
       "templates": [
         "templates/patterns_2/魔防1.png",
-        "templates/patterns_2/魔攻3.png"
+        "templates/patterns_2/魔攻3.png",
+        "templates/patterns_2/魔防2.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -146,9 +149,9 @@
         "templates/patterns_2/物攻4.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -159,9 +162,9 @@
         "templates/patterns_2/魔攻3.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -174,9 +177,9 @@
         "templates/patterns_2/生命5.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     },
@@ -186,9 +189,9 @@
         "templates/patterns_2/速度2.png"
       ],
       "threshold": 0.65,
-      "scale_min": 0.5,
-      "scale_max": 1.05,
-      "scale_steps": 7,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
       "use_grayscale": true,
       "use_canny": false
     }
@@ -209,7 +212,7 @@
     "use_similarity_filter": false,
     "allow_anchor_lost_frames": 2
   },
-  "game_resolution": "1080p",
+  "game_resolution": "2K",
   "runtime": {
     "capture_fps": 30,
     "hide_after_frames": 10,
@@ -220,17 +223,17 @@
     "sequence_cooldown_seconds": 1.5
   },
   "debug": {
-    "enabled": true,
-    "show_preview_window": true,
-    "save_debug_frames": true,
+    "enabled": false,
+    "show_preview_window": false,
+    "save_debug_frames": false,
     "save_every_n_seconds": 3,
     "debug_output_dir": "debug_output",
     "draw_anchor_box": true,
     "draw_sub_roi_box": true,
     "draw_pattern_box": true,
     "print_scores": true,
-    "save_sequence_frames": true,
-    "save_selected_frames": true
+    "save_sequence_frames": false,
+    "save_selected_frames": false
   },
   "overlay": {
     "width": 680,
@@ -246,31 +249,41 @@
   },
   "result_text_overlay": {
     "enabled": true,
-    "x": 1965,
-    "y": 825,
-    "width": 531,
-    "height": 450,
-    "min_width": 180,
-    "min_height": 120,
+    "x": 2137,
+    "y": 309,
+    "width": 396,
+    "height": 583,
+    "min_width": 220,
+    "min_height": 160,
     "font_family": "微软雅黑",
-    "font_size": 28,
-    "font_size_step": 2,
-    "min_font_size": 26,
     "default_color": "#FFD700",
-    "outline_color": "#000000",
-    "outline_width": 0,
-    "item_spacing": 42,
-    "max_items": 104,
-    "show_counts": true,
-    "count_font_size": 30,
-    "text_template": "{label}",
-    "click_through": false,
-    "background_color": "rgba(0,0,0,150)",
-    "border_color": "rgba(255,255,255,60)",
-    "border_radius": 12,
-    "padding": 7,
-    "title": "识别记录",
-    "scrollbar_width": 6,
+    "max_items": 500,
+    "click_through": true,
+    "background_color": "rgba(8,10,16,190)",
+    "border_color": "rgba(255,255,255,45)",
+    "border_radius": 10,
+    "padding": 10,
+    "title": "Roco-S2-Box",
+    "scrollbar_width": 7,
+    "plus_color": "#DDDDDD",
+    "count_color": "#AAAAAA",
+    "counter_top_n": 20,
+    "show_counter_area": true,
+    "bloodline_colors": {
+      "普通": "#E8E8E8",
+      "奇异": "#FFE600",
+      "污染": "#C080FF",
+      "混血": "#FFAA00",
+      "异色": "#00AAFF"
+    },
+    "attribute_colors": {
+      "物防": "#FFD700",
+      "魔防": "#FFD700",
+      "物攻": "#FFD700",
+      "魔攻": "#FFD700",
+      "生命": "#FFD700",
+      "速度": "#66CCFF"
+    },
     "label_colors": {
       "普通": "#00aa00",
       "奇异": "#ffff00",
