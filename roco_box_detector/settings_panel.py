@@ -838,14 +838,15 @@ class RuntimeTab(QWidget):
     def _apply_resolution_preset(self, res: str):
         self.config["game_resolution"] = res
         presets = {
-            "720p":  {"anchor": (0.40, 0.65, 5), "pattern": (0.35, 0.75, 6)},
-            "1080p": {"anchor": (0.60, 0.90, 6), "pattern": (0.50, 1.05, 7)},
-            "2K":    {"anchor": (0.75, 1.25, 6), "pattern": (0.65, 1.35, 8)},
-            "4K":    {"anchor": (1.20, 1.80, 6), "pattern": (1.00, 1.70, 8)},
+            "720p":  {"anchor": (0.55, 0.65, 4), "pattern": (0.35, 0.75, 6)},
+            "1080p": {"anchor": (0.75, 0.90, 5), "pattern": (0.50, 1.05, 7)},
+            "2K":    {"anchor": (0.90, 1.25, 5), "pattern": (0.65, 1.35, 8)},
+            "4K":    {"anchor": (1.35, 1.80, 5), "pattern": (1.00, 1.70, 8)},
         }
         p = presets.get(res, presets["2K"])
         # Update anchor
         ac = self.config.setdefault("anchor", {})
+        ac["threshold"] = 0.75
         ac["scale_min"], ac["scale_max"], ac["scale_steps"] = p["anchor"]
         # Update all pattern groups
         for pk in ("patterns", "patterns_2"):

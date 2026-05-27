@@ -919,6 +919,8 @@ class CascadeDetector(threading.Thread):
             pattern_box=None, pattern_best_box=None,
             pattern_box_2=None, pattern_best_box_2=None,
             anchor_score=0.0, pattern_score=0.0, pattern_label=None)
+        if debug_frame is not None:
+            debug_frame = np.ascontiguousarray(debug_frame)
 
         # Draw roi1 best box
         best_fr1 = None
@@ -926,7 +928,7 @@ class CascadeDetector(threading.Thread):
             if fr.frame_index == seq_result_1.best_frame_index and fr.box_in_roi:
                 best_fr1 = fr
                 break
-        if best_fr1 and best_fr1.box_in_roi:
+        if debug_frame is not None and best_fr1 and best_fr1.box_in_roi:
             px, py, pw, ph = best_fr1.box_in_roi
             color = (0, 255, 0) if best_fr1.matched else (0, 0, 255)
             cv2.rectangle(debug_frame, (px, py), (px + pw, py + ph), color, 2)
@@ -940,12 +942,19 @@ class CascadeDetector(threading.Thread):
                 if fr.frame_index == seq_result_2.best_frame_index and fr.box_in_roi:
                     best_fr2 = fr
                     break
-            if best_fr2 and best_fr2.box_in_roi:
+            if debug_frame is not None and best_fr2 and best_fr2.box_in_roi:
                 px, py, pw, ph = best_fr2.box_in_roi
                 color = (255, 255, 0) if best_fr2.matched else (0, 140, 255)
                 cv2.rectangle(debug_frame, (px, py), (px + pw, py + ph), color, 2)
                 cv2.putText(debug_frame, f"{best_fr2.label or ''} {best_fr2.score:.2f}",
                             (px, py - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+        # Select best screenshot: best frame on match, last frame otherwise
+        best_frame_idx = seq_result_1.best_frame_index
+        best_frame = next((f for f in frames if f.index == best_frame_idx), frames[-1] if frames else None)
+        ss_img1 = best_frame.sub_roi_image if best_frame else self._latest_sub_roi1
+        ss_img2 = (best_frame.sub_roi_image_2 if best_frame and best_frame.sub_roi_image_2 is not None
+                   else self._latest_sub_roi2)
 
         return CascadeDetectionResult(
             matched=matched,
@@ -966,8 +975,8 @@ class CascadeDetector(threading.Thread):
             mode="SEQ",
             sequence_result=seq_result_1,
             match_votes=votes_str,
-            sub_roi1_image=self._latest_sub_roi1,
-            sub_roi2_image=self._latest_sub_roi2,
+            sub_roi1_image=ss_img1,
+            sub_roi2_image=ss_img2,
         )
 
     # ── debug logging ────────────────────────────────────────────────

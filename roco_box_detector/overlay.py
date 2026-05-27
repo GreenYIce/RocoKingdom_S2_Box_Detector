@@ -568,19 +568,27 @@ class ResultTextOverlay(QWidget):
         self._signals.clear_results.connect(self._do_clear)
         self._signals.set_status_text.connect(self._do_set_status)
 
-        # Apply default screenshot mode state
-        self._scroll.hide()
-        self._screenshot_preview.show()
-        self._mode_btn.setText("📷 截图模式")
-        self._mode_btn.setStyleSheet(
-            "QPushButton { color: #44dd88; background: rgba(68,221,136,12); "
-            "border: 1px solid rgba(68,221,136,40); border-radius: 6px; "
-            "font-size: 15px; padding: 4px 12px; font-weight: bold; }"
-            "QPushButton:hover { background: rgba(68,221,136,25); "
-            "border-color: rgba(68,221,136,80); }")
+        if self._status_screenshot_on:
+            self._status_lbl.setText("📷 截图模式")
+            self._status_lbl.setStyleSheet(
+                f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
 
         if self._enabled:
             QWidget.show(self)
+            QApplication.processEvents()  # force layout so widgets have valid sizes
+
+        # Belt-and-suspenders: re-apply default screenshot mode after show
+        if self._status_screenshot_on:
+            self._scroll.hide()
+            self._screenshot_preview.show()
+            self._mode_btn.setText("📷 截图模式")
+            self._mode_btn.setStyleSheet(
+                "QPushButton { color: #44dd88; background: rgba(68,221,136,12); "
+                "border: 1px solid rgba(68,221,136,40); border-radius: 6px; "
+                "font-size: 15px; padding: 4px 12px; font-weight: bold; }"
+                "QPushButton:hover { background: rgba(68,221,136,25); "
+                "border-color: rgba(68,221,136,80); }")
+            self._refresh_screenshot_counter()
 
     # ── build ─────────────────────────────────────────────────────────
 
@@ -670,7 +678,6 @@ class ResultTextOverlay(QWidget):
         hl.addWidget(quit_btn)
 
         # Mode toggle (larger, prominent)
-        self._status_screenshot_on = False
         self._mode_btn = QPushButton("🔍 识图模式")
         self._mode_btn.setMinimumHeight(36)
         self._mode_btn.setToolTip("切换识图/截图模式")
@@ -717,7 +724,7 @@ class ResultTextOverlay(QWidget):
         self._ss_img1.setStyleSheet(
             "color: #666; font-size: 10px; background: rgba(0,0,0,60); "
             "border-radius: 4px; padding: 4px;")
-        self._ss_img1.setMinimumSize(100, 60)
+        self._ss_img1.setMinimumSize(160, 100)
         ss_row.addWidget(self._ss_img1, 1)
 
         self._ss_img2 = QLabel("")
@@ -725,7 +732,7 @@ class ResultTextOverlay(QWidget):
         self._ss_img2.setStyleSheet(
             "color: #666; font-size: 10px; background: rgba(0,0,0,60); "
             "border-radius: 4px; padding: 4px;")
-        self._ss_img2.setMinimumSize(100, 60)
+        self._ss_img2.setMinimumSize(160, 100)
         ss_row.addWidget(self._ss_img2, 1)
 
         ss_layout.addLayout(ss_row)
@@ -784,6 +791,20 @@ class ResultTextOverlay(QWidget):
         self._scroll.setStyleSheet(self._scroll_style())
         self._header_bar.setStyleSheet(self._header_style())
         self._counter_area.setStyleSheet(self._counter_style())
+
+        # If starting in screenshot mode, apply initial state now
+        if self._status_screenshot_on:
+            self._scroll.hide()
+            self._screenshot_preview.show()
+            self._mode_btn.setText("📷 截图模式")
+            self._mode_btn.setStyleSheet(
+                "QPushButton { color: #44dd88; background: rgba(68,221,136,12); "
+                "border: 1px solid rgba(68,221,136,40); border-radius: 6px; "
+                "font-size: 15px; padding: 4px 12px; font-weight: bold; }"
+                "QPushButton:hover { background: rgba(68,221,136,25); "
+                "border-color: rgba(68,221,136,80); }")
+            self._refresh_screenshot_counter()
+
         self._panel.repaint()
 
     def _make_header_btn(self, text: str, tooltip: str):
@@ -958,13 +979,32 @@ class ResultTextOverlay(QWidget):
 
     def update_screenshot_preview(self, img1: Optional[np.ndarray],
                                    img2: Optional[np.ndarray]):
-        """Update the screenshot preview with latest sub-ROI captures."""
-        if not self._status_screenshot_on:
-            return
-        self._ss_ref1 = img1
-        self._ss_ref2 = img2
-        max_w = max(60, self._ss_img1.width())
-        max_h = max(60, self._ss_img1.height())
+        """Update the screenshot preview with latest sub-ROI captures.
+        Always processes images regardless of mode, so they are ready on toggle.
+        In screenshot mode, counts each valid capture as one box detection."""
+        if img1 is not None and img1.size > 0:
+            self._ss_ref1 = img1.copy()
+        else:
+            self._ss_ref1 = None
+        if img2 is not None and img2.size > 0:
+            self._ss_ref2 = img2.copy()
+        else:
+            self._ss_ref2 = None
+
+        # Count in screenshot mode: each valid capture = one box
+        if self._status_screenshot_on and self._ss_ref1 is not None:
+            dummy_label = f"screenshot_{len(self._records)}"
+            self._records.append(dummy_label)
+            if len(self._records) > self._max_items:
+                self._records.pop(0)
+            self._refresh_screenshot_counter()
+            self._status_lbl.setText(f"📷 已打 {len(self._records)} 次")
+            self._status_lbl.setStyleSheet(
+                f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
+
+        # Use actual widget size, with fallback for pre-layout startup
+        max_w = max(200, self._ss_img1.width() or self.width() * 2 // 3)
+        max_h = max(130, self._ss_img1.height() or self.height() * 2 // 3)
         if img1 is not None and img1.size > 0:
             h, w = img1.shape[:2]
             if img1.ndim == 3:
@@ -1013,6 +1053,9 @@ class ResultTextOverlay(QWidget):
 
     def show_sampling(self):
         if self._status_screenshot_on:
+            self._status_lbl.setText("📷 截图模式")
+            self._status_lbl.setStyleSheet(
+                f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
             return
         self.set_status_text("正在采样识别...")
         self._status_lbl.setStyleSheet(
@@ -1020,6 +1063,11 @@ class ResultTextOverlay(QWidget):
 
     def show_match(self, text: str):
         if self._status_screenshot_on:
+            self._status_lbl.setText(
+                f"📷 已打 {len(self._records)} 次"
+                if self._records else "📷 截图模式")
+            self._status_lbl.setStyleSheet(
+                f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
             return
         self.set_status_text(f"识别到：{text}")
         self._status_lbl.setStyleSheet(
@@ -1027,6 +1075,11 @@ class ResultTextOverlay(QWidget):
 
     def show_no_match(self):
         if self._status_screenshot_on:
+            self._status_lbl.setText(
+                f"📷 已打 {len(self._records)} 次"
+                if self._records else "📷 截图模式")
+            self._status_lbl.setStyleSheet(
+                f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
             return
         self.set_status_text("未识别到目标")
         self._status_lbl.setStyleSheet(
@@ -1038,6 +1091,10 @@ class ResultTextOverlay(QWidget):
         self._status_lbl.setText(text)
 
     def _do_add(self, label: str):
+        # Screenshot mode: counting handled by update_screenshot_preview
+        if self._status_screenshot_on:
+            return
+
         bloodline, attribute = parse_combined_label(label)
 
         self._records.append(label)
@@ -1052,11 +1109,6 @@ class ResultTextOverlay(QWidget):
         self._bloodline_counts[bloodline] = self._bloodline_counts.get(bloodline, 0) + 1
         if attribute:
             self._attribute_counts[attribute] = self._attribute_counts.get(attribute, 0) + 1
-
-        if self._status_screenshot_on:
-            # Screenshot mode: skip history display, just count
-            self._refresh_screenshot_counter()
-            return
 
         bl_color = self._resolve_color(bloodline, is_bloodline=True)
         attr_color = self._resolve_color(attribute, is_bloodline=False) if attribute else self._default_color
