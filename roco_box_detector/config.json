@@ -14,7 +14,8 @@
       "templates/box_anchor/837d0f4c-aa64-4a05-a082-f46b21767ba1.png",
       "templates/box_anchor/c322f103-4bb2-4d04-9467-b51fae93001e.png",
       "templates/box_anchor/d957670d-5d24-462c-96db-1dcfbbe12773.png",
-      "templates/box_anchor/fab2bb51-c9a8-467f-8a92-018066e9d7da.png"
+      "templates/box_anchor/fab2bb51-c9a8-467f-8a92-018066e9d7da.png",
+      "templates/box_anchor/1.png"
     ],
     "threshold": 0.75,
     "scale_min": 0.9,
@@ -226,7 +227,7 @@
     "hide_after_frames": 10,
     "normalize_roi_width": 300,
     "pattern_normalize_width": 100,
-    "anchor_skip_frames": 1,
+    "anchor_skip_frames": 0,
     "log_every_n_frames": 100,
     "sequence_cooldown_seconds": 1.5
   },
@@ -257,10 +258,10 @@
   },
   "result_text_overlay": {
     "enabled": true,
-    "x": 474,
-    "y": 34,
-    "width": 835,
-    "height": 261,
+    "x": 2630,
+    "y": 521,
+    "width": 1253,
+    "height": 404,
     "min_width": 220,
     "min_height": 160,
     "font_family": "微软雅黑",
@@ -312,5 +313,6 @@
     },
     "roi_fallback": "太快了没看清喵"
   },
-  "startup_complete": true
+  "startup_complete": true,
+  "capture_mode": "solo"
 }

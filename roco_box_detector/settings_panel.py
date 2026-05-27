@@ -771,6 +771,28 @@ class RuntimeTab(QWidget):
         self.res_combo.currentTextChanged.connect(self._apply_resolution_preset)
         form.addRow("游戏分辨率预设", self.res_combo)
 
+        # Solo / Duo
+        from PyQt5.QtWidgets import QRadioButton, QButtonGroup
+        mode_row = QHBoxLayout()
+        mode_label = QLabel("抓捕模式")
+        mode_label.setFixedWidth(120)
+        mode_row.addWidget(mode_label)
+        self.solo_btn = QRadioButton("单人")
+        self.solo_btn.setStyleSheet("color: #aaa;")
+        self.duo_btn = QRadioButton("双人")
+        self.duo_btn.setStyleSheet("color: #aaa;")
+        self._mode_group = QButtonGroup(mode_row)
+        self._mode_group.addButton(self.solo_btn, 0)
+        self._mode_group.addButton(self.duo_btn, 1)
+        cur_mode = self.config.get("capture_mode", "solo")
+        self.solo_btn.setChecked(cur_mode != "duo")
+        self.duo_btn.setChecked(cur_mode == "duo")
+        self._mode_group.buttonClicked.connect(self._apply_mode)
+        mode_row.addWidget(self.solo_btn)
+        mode_row.addWidget(self.duo_btn)
+        mode_row.addStretch()
+        form.addRow(mode_row)
+
         rt = self.config["runtime"]
         self.fps_spin = QSpinBox()
         self.fps_spin.setRange(1, 60)
@@ -835,6 +857,10 @@ class RuntimeTab(QWidget):
         layout.addWidget(ws_group)
         layout.addStretch()
 
+    def _apply_mode(self):
+        self.config["capture_mode"] = "duo" if self.duo_btn.isChecked() else "solo"
+        self._apply_resolution_preset(self.res_combo.currentText())
+
     def _apply_resolution_preset(self, res: str):
         self.config["game_resolution"] = res
         presets = {
@@ -847,7 +873,12 @@ class RuntimeTab(QWidget):
         # Update anchor
         ac = self.config.setdefault("anchor", {})
         ac["threshold"] = 0.75
-        ac["scale_min"], ac["scale_max"], ac["scale_steps"] = p["anchor"]
+        smin, smax, ssteps = p["anchor"]
+        # Duo mode: reduce anchor scale by 0.1
+        if self.duo_btn.isChecked():
+            smin = max(0.3, smin - 0.1)
+            smax = max(smin + 0.1, smax - 0.1)
+        ac["scale_min"], ac["scale_max"], ac["scale_steps"] = smin, smax, ssteps
         # Update all pattern groups
         for pk in ("patterns", "patterns_2"):
             for _, pcfg in self.config.get(pk, {}).items():
@@ -856,6 +887,7 @@ class RuntimeTab(QWidget):
 
     def collect(self, cfg: dict):
         cfg["game_resolution"] = self.res_combo.currentText()
+        cfg["capture_mode"] = "duo" if self.duo_btn.isChecked() else "solo"
         rt = cfg["runtime"]
         rt["capture_fps"] = self.fps_spin.value()
         rt["normalize_roi_width"] = self.norm_spin.value()

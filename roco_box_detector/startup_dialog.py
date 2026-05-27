@@ -95,6 +95,8 @@ class StartupDialog(QDialog):
         ac["threshold"] = 0.75
         ac["scale_min"], ac["scale_max"], ac["scale_steps"] = p["anchor"]
 
+        self.config["capture_mode"] = "duo" if is_duo else "solo"
+
         # Duo: reduce anchor scale by 0.1
         if is_duo:
             ac["scale_min"] = max(0.3, ac["scale_min"] - 0.1)

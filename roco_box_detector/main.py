@@ -111,12 +111,11 @@ class App:
 
     def run(self) -> None:
         # Startup wizard: resolution + solo/duo selection
-        if not self.config.get("startup_complete"):
-            dlg = StartupDialog(self.config)
-            if dlg.exec_() == QDialog.Accepted:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    self.config = json.load(f)
-                self._apply_settings(self.config)
+        dlg = StartupDialog(self.config)
+        if dlg.exec_() == QDialog.Accepted:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                self.config = json.load(f)
+            self._apply_settings(self.config)
 
         self._register_hotkeys()
         self._start_roi_selection()
