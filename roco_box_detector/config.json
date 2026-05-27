@@ -16,7 +16,7 @@
       "templates/box_anchor/d957670d-5d24-462c-96db-1dcfbbe12773.png",
       "templates/box_anchor/fab2bb51-c9a8-467f-8a92-018066e9d7da.png"
     ],
-    "threshold": 0.71,
+    "threshold": 0.68,
     "scale_min": 0.75,
     "scale_max": 1.25,
     "scale_steps": 6,
@@ -257,10 +257,10 @@
   },
   "result_text_overlay": {
     "enabled": true,
-    "x": 2057,
-    "y": 389,
-    "width": 486,
-    "height": 622,
+    "x": 788,
+    "y": -6,
+    "width": 835,
+    "height": 261,
     "min_width": 220,
     "min_height": 160,
     "font_family": "微软雅黑",

@@ -133,6 +133,10 @@ class App:
         """Called on main thread via AppBridge signal. Safe to touch overlay."""
         status = result.status
 
+        # Always update screenshot preview if captures exist
+        self.result_text.update_screenshot_preview(
+            result.sub_roi1_image, result.sub_roi2_image)
+
         print(f"[Callback] status={status} matched={result.matched} "
               f"label={result.label}"
               f"{' votes=' + result.match_votes if result.match_votes else ''}")

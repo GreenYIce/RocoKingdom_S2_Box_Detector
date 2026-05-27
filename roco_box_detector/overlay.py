@@ -1,11 +1,15 @@
 """PyQt5 frameless overlay windows: status bar and result history panel."""
 
+import cv2
+import numpy as np
+from typing import Optional
+
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLayout,
     QPushButton, QScrollArea, QSizeGrip,
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QPoint
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtGui import QFont, QColor, QImage, QPixmap
 
 
 class OverlaySignals(QObject):
@@ -476,7 +480,7 @@ class ResultTextOverlay(QWidget):
       CounterArea — bloodline counts | attribute counts
     """
 
-    _HEADER_H = 40
+    _HEADER_H = 42
 
     def __init__(self, config: dict):
         super().__init__()
@@ -522,16 +526,18 @@ class ResultTextOverlay(QWidget):
         self._min_w = cfg.get("min_width", 220)
         self._min_h = cfg.get("min_height", 160)
 
-        # Position / size
+        # Position / size — default: center-bottom, width = screen/4
         screen = QApplication.primaryScreen()
         geom = screen.geometry() if screen else None
-        self._width = cfg.get("width", 360)
-        self._height = cfg.get("height", 450)
         if geom:
-            def_x = max(0, geom.width() - self._width - 30)
-            def_y = max(0, (geom.height() - self._height) // 2)
+            def_w = max(220, geom.width() // 4)
+            def_h = 240
+            def_x = max(0, (geom.width() - def_w) // 2)
+            def_y = max(0, geom.height() - def_h - 30)
         else:
-            def_x, def_y = 800, 300
+            def_w, def_h, def_x, def_y = 360, 240, 800, 500
+        self._width = cfg.get("width", def_w)
+        self._height = cfg.get("height", def_h)
         config_x = cfg.get("x", def_x)
         config_y = cfg.get("y", def_y)
         if geom and (config_x < -500 or config_x > geom.width() + 200
@@ -542,13 +548,14 @@ class ResultTextOverlay(QWidget):
             self._pos_x = config_x
             self._pos_y = config_y
 
-        # State
+        # State — default: screenshot mode
         self._records: list = []
         self._history_items: list = []
         self._bloodline_counts: dict = {}
         self._attribute_counts: dict = {}
         self._dragging = False
         self._drag_start = QPoint()
+        self._status_screenshot_on = True  # start in screenshot mode
 
         self.setCursor(Qt.BlankCursor)
 
@@ -560,6 +567,17 @@ class ResultTextOverlay(QWidget):
         self._signals.add_result.connect(self._do_add)
         self._signals.clear_results.connect(self._do_clear)
         self._signals.set_status_text.connect(self._do_set_status)
+
+        # Apply default screenshot mode state
+        self._scroll.hide()
+        self._screenshot_preview.show()
+        self._mode_btn.setText("📷 截图模式")
+        self._mode_btn.setStyleSheet(
+            "QPushButton { color: #44dd88; background: rgba(68,221,136,12); "
+            "border: 1px solid rgba(68,221,136,40); border-radius: 6px; "
+            "font-size: 15px; padding: 4px 12px; font-weight: bold; }"
+            "QPushButton:hover { background: rgba(68,221,136,25); "
+            "border-color: rgba(68,221,136,80); }")
 
         if self._enabled:
             QWidget.show(self)
@@ -610,55 +628,64 @@ class ResultTextOverlay(QWidget):
 
         # Preview toggle
         self._status_preview_on = False
-        self._preview_btn = self._make_header_btn("◌", "预览窗口开关")
+        self._preview_btn = self._make_header_btn("◌ 预览", "预览窗口开关")
         self._preview_btn.clicked.connect(self._toggle_status_preview)
         hl.addWidget(self._preview_btn)
 
         # Debug save toggle
         self._status_debug_on = False
-        self._debug_btn = self._make_header_btn("○", "调试截图开关")
+        self._debug_btn = self._make_header_btn("○ 存图", "调试截图开关")
         self._debug_btn.clicked.connect(self._toggle_status_debug)
         hl.addWidget(self._debug_btn)
 
         # Debug overlay toggle
         self._status_overlay_on = False
-        self._overlay_btn = self._make_header_btn("□", "画面覆盖框开关")
+        self._overlay_btn = self._make_header_btn("□ 画框", "画面覆盖框开关")
         self._overlay_btn.clicked.connect(self._toggle_status_overlay)
         hl.addWidget(self._overlay_btn)
 
         # Re-select ROI
-        reselect = self._make_header_btn("↻", "重新框选区域")
+        reselect = self._make_header_btn("↻ 重选", "重新框选区域")
         reselect.clicked.connect(lambda: self._signals.request_re_select.emit())
         hl.addWidget(reselect)
 
         # Settings
-        gear = self._make_header_btn("⚙", "设置面板")
+        gear = self._make_header_btn("⚙ 设置", "设置面板")
         gear.clicked.connect(lambda: self._signals.open_settings.emit())
         hl.addWidget(gear)
 
-        # Clear
-        clear_btn = self._make_header_btn("清空", "清空识别记录")
-        clear_btn.clicked.connect(self._do_clear)
-        hl.addWidget(clear_btn)
-
         # Close panel
-        close_btn = self._make_header_btn("✕", "隐藏面板")
+        close_btn = self._make_header_btn("✕ 隐藏", "隐藏面板")
         close_btn.clicked.connect(lambda: QWidget.hide(self))
         hl.addWidget(close_btn)
 
         # Quit app
-        quit_btn = self._make_header_btn("⏻", "退出程序")
+        quit_btn = self._make_header_btn("⏻ 退出", "退出程序")
         quit_btn.setStyleSheet(
             "QPushButton { color: #e04040; background: transparent; border: none; "
-            "font-size: 14px; padding: 0; }"
+            "font-size: 14px; padding: 2px 6px; }"
             "QPushButton:hover { color: #ff6666; background: rgba(255,64,64,30); "
             "border-radius: 4px; }")
         quit_btn.clicked.connect(lambda: self._signals.request_quit.emit())
         hl.addWidget(quit_btn)
 
+        # Mode toggle (larger, prominent)
+        self._status_screenshot_on = False
+        self._mode_btn = QPushButton("🔍 识图模式")
+        self._mode_btn.setMinimumHeight(36)
+        self._mode_btn.setToolTip("切换识图/截图模式")
+        self._mode_btn.clicked.connect(self._toggle_screenshot_mode)
+        self._mode_btn.setStyleSheet(
+            "QPushButton { color: #66aaff; background: rgba(102,170,255,12); "
+            "border: 1px solid rgba(102,170,255,40); border-radius: 6px; "
+            "font-size: 15px; padding: 4px 12px; font-weight: bold; }"
+            "QPushButton:hover { background: rgba(102,170,255,25); "
+            "border-color: rgba(102,170,255,80); }")
+        hl.addWidget(self._mode_btn)
+
         panel_layout.addWidget(self._header_bar)
 
-        # ── scroll area ──
+        # ── scroll area (history) ──
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -674,6 +701,36 @@ class ResultTextOverlay(QWidget):
         self._scroll.setWidget(self._content)
 
         panel_layout.addWidget(self._scroll, 1)
+
+        # ── screenshot preview (hidden, replaces scroll when on) ──
+        self._screenshot_preview = QWidget()
+        self._screenshot_preview.setObjectName("RTO_screenshot")
+        ss_layout = QVBoxLayout(self._screenshot_preview)
+        ss_layout.setContentsMargins(4, 4, 4, 4)
+        ss_layout.setSpacing(6)
+
+        ss_row = QHBoxLayout()
+        ss_row.setSpacing(6)
+
+        self._ss_img1 = QLabel("等待截图...")
+        self._ss_img1.setAlignment(Qt.AlignCenter)
+        self._ss_img1.setStyleSheet(
+            "color: #666; font-size: 10px; background: rgba(0,0,0,60); "
+            "border-radius: 4px; padding: 4px;")
+        self._ss_img1.setMinimumSize(100, 60)
+        ss_row.addWidget(self._ss_img1, 1)
+
+        self._ss_img2 = QLabel("")
+        self._ss_img2.setAlignment(Qt.AlignCenter)
+        self._ss_img2.setStyleSheet(
+            "color: #666; font-size: 10px; background: rgba(0,0,0,60); "
+            "border-radius: 4px; padding: 4px;")
+        self._ss_img2.setMinimumSize(100, 60)
+        ss_row.addWidget(self._ss_img2, 1)
+
+        ss_layout.addLayout(ss_row)
+        self._screenshot_preview.hide()
+        panel_layout.addWidget(self._screenshot_preview, 1)
 
         # ── counter area ──
         self._counter_area = QWidget()
@@ -698,6 +755,18 @@ class ResultTextOverlay(QWidget):
         self._attr_counter.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         counter_layout.addWidget(self._attr_counter, 1)
 
+        # Clear button in counter bar
+        self._counter_clear_btn = QPushButton("清空")
+        self._counter_clear_btn.setMinimumHeight(22)
+        self._counter_clear_btn.setToolTip("清空识别记录")
+        self._counter_clear_btn.clicked.connect(self._do_clear)
+        self._counter_clear_btn.setStyleSheet(
+            "QPushButton { color: #888; background: transparent; border: none; "
+            "font-size: 12px; padding: 2px 6px; }"
+            "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
+            "border-radius: 4px; }")
+        counter_layout.addWidget(self._counter_clear_btn)
+
         panel_layout.addWidget(self._counter_area)
 
         if not self._show_counter:
@@ -719,11 +788,11 @@ class ResultTextOverlay(QWidget):
 
     def _make_header_btn(self, text: str, tooltip: str):
         btn = QPushButton(text)
-        btn.setFixedSize(28, 28)
+        btn.setMinimumHeight(28)
         btn.setToolTip(tooltip)
         btn.setStyleSheet(
             "QPushButton { color: #888; background: transparent; border: none; "
-            "font-size: 14px; padding: 0; }"
+            "font-size: 14px; padding: 2px 6px; }"
             "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
             "border-radius: 4px; }"
         )
@@ -819,33 +888,109 @@ class ResultTextOverlay(QWidget):
 
     def _toggle_status_debug(self):
         self._status_debug_on = not self._status_debug_on
-        self._debug_btn.setText("⬤" if self._status_debug_on else "○")
+        self._debug_btn.setText("⬤ 存图" if self._status_debug_on else "○ 存图")
         self._debug_btn.setStyleSheet(
             f"QPushButton {{ color: {'#e04040' if self._status_debug_on else '#888'}; "
-            "background: transparent; border: none; font-size: 14px; padding: 0; }"
+            "background: transparent; border: none; font-size: 14px; padding: 2px 6px; }"
             "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
             "border-radius: 4px; }")
         self._signals.toggle_debug_save.emit(self._status_debug_on)
 
     def _toggle_status_preview(self):
         self._status_preview_on = not self._status_preview_on
-        self._preview_btn.setText("🔍" if self._status_preview_on else "◌")
+        self._preview_btn.setText("🔍 预览" if self._status_preview_on else "◌ 预览")
         self._preview_btn.setStyleSheet(
             f"QPushButton {{ color: {'#66aaff' if self._status_preview_on else '#888'}; "
-            "background: transparent; border: none; font-size: 14px; padding: 0; }"
+            "background: transparent; border: none; font-size: 14px; padding: 2px 6px; }"
             "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
             "border-radius: 4px; }")
         self._signals.toggle_preview.emit(self._status_preview_on)
 
     def _toggle_status_overlay(self):
         self._status_overlay_on = not self._status_overlay_on
-        self._overlay_btn.setText("▣" if self._status_overlay_on else "□")
+        self._overlay_btn.setText("▣ 画框" if self._status_overlay_on else "□ 画框")
         self._overlay_btn.setStyleSheet(
             f"QPushButton {{ color: {'#ff8844' if self._status_overlay_on else '#888'}; "
-            "background: transparent; border: none; font-size: 14px; padding: 0; }"
+            "background: transparent; border: none; font-size: 14px; padding: 2px 6px; }"
             "QPushButton:hover { color: #fff; background: rgba(255,255,255,18); "
             "border-radius: 4px; }")
         self._signals.toggle_debug_overlay.emit(self._status_overlay_on)
+
+    def _toggle_screenshot_mode(self):
+        self._status_screenshot_on = not self._status_screenshot_on
+        if self._status_screenshot_on:
+            self._mode_btn.setText("📷 截图模式")
+            self._mode_btn.setStyleSheet(
+                "QPushButton { color: #44dd88; background: rgba(68,221,136,12); "
+                "border: 1px solid rgba(68,221,136,40); border-radius: 6px; "
+                "font-size: 15px; padding: 4px 12px; font-weight: bold; }"
+                "QPushButton:hover { background: rgba(68,221,136,25); "
+                "border-color: rgba(68,221,136,80); }")
+            # Swap: hide history, show screenshot preview
+            self._scroll.hide()
+            self._screenshot_preview.show()
+            self._refresh_screenshot_counter()
+        else:
+            self._mode_btn.setText("🔍 识图模式")
+            self._mode_btn.setStyleSheet(
+                "QPushButton { color: #66aaff; background: rgba(102,170,255,12); "
+                "border: 1px solid rgba(102,170,255,40); border-radius: 6px; "
+                "font-size: 15px; padding: 4px 12px; font-weight: bold; }"
+                "QPushButton:hover { background: rgba(102,170,255,25); "
+                "border-color: rgba(102,170,255,80); }")
+            # Swap: show history, hide screenshot preview
+            self._scroll.show()
+            self._screenshot_preview.hide()
+            self._refresh_counter_area()
+
+    def _refresh_screenshot_counter(self):
+        """Show simplified counter: total box count on one line."""
+        total = len(self._records)
+        if total > 0:
+            self._bl_counter.setText(
+                f"<html><body style='margin:0;padding:0'>"
+                f"<span style='color:#aaa;font-size:{self._counter_title_font_size}px;'>已打数量</span> "
+                f"<span style='color:#ffaa00;font-size:{self._counter_font_size}px;'>x {total}</span>"
+                f"</body></html>")
+        else:
+            self._bl_counter.setText("")
+        self._attr_counter.setText("")
+
+    def update_screenshot_preview(self, img1: Optional[np.ndarray],
+                                   img2: Optional[np.ndarray]):
+        """Update the screenshot preview with latest sub-ROI captures."""
+        if not self._status_screenshot_on:
+            return
+        self._ss_ref1 = img1
+        self._ss_ref2 = img2
+        max_w = max(60, self._ss_img1.width())
+        max_h = max(60, self._ss_img1.height())
+        if img1 is not None and img1.size > 0:
+            h, w = img1.shape[:2]
+            if img1.ndim == 3:
+                rgb = cv2.cvtColor(img1, cv2.COLOR_BGR2RGB)
+                fmt = QImage.Format_RGB888
+                bpl = rgb.strides[0]
+            else:
+                rgb = img1
+                fmt = QImage.Format_Grayscale8
+                bpl = w
+            qimg = QImage(rgb.data, w, h, bpl, fmt)
+            self._ss_img1.setPixmap(QPixmap.fromImage(qimg).scaled(
+                max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        if img2 is not None and img2.size > 0:
+            h, w = img2.shape[:2]
+            if img2.ndim == 3:
+                rgb = cv2.cvtColor(img2, cv2.COLOR_BGR2RGB)
+                fmt = QImage.Format_RGB888
+                bpl = rgb.strides[0]
+            else:
+                rgb = img2
+                fmt = QImage.Format_Grayscale8
+                bpl = w
+            qimg = QImage(rgb.data, w, h, bpl, fmt)
+            self._ss_img2.setPixmap(QPixmap.fromImage(qimg).scaled(
+                max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     # ── public API ────────────────────────────────────────────────────
 
@@ -867,16 +1012,22 @@ class ResultTextOverlay(QWidget):
         self._signals.set_status_text.emit(text)
 
     def show_sampling(self):
+        if self._status_screenshot_on:
+            return
         self.set_status_text("正在采样识别...")
         self._status_lbl.setStyleSheet(
             f"color: #66aaff; font-size: {self._status_font_size}px; background: transparent;")
 
     def show_match(self, text: str):
+        if self._status_screenshot_on:
+            return
         self.set_status_text(f"识别到：{text}")
         self._status_lbl.setStyleSheet(
             f"color: #00954f; font-size: {self._status_font_size}px; background: transparent;")
 
     def show_no_match(self):
+        if self._status_screenshot_on:
+            return
         self.set_status_text("未识别到目标")
         self._status_lbl.setStyleSheet(
             f"color: #aaa; font-size: {self._status_font_size}px; background: transparent;")
@@ -897,6 +1048,16 @@ class ResultTextOverlay(QWidget):
                 self._content_layout.removeWidget(w)
                 w.deleteLater()
 
+        # Update counts
+        self._bloodline_counts[bloodline] = self._bloodline_counts.get(bloodline, 0) + 1
+        if attribute:
+            self._attribute_counts[attribute] = self._attribute_counts.get(attribute, 0) + 1
+
+        if self._status_screenshot_on:
+            # Screenshot mode: skip history display, just count
+            self._refresh_screenshot_counter()
+            return
+
         bl_color = self._resolve_color(bloodline, is_bloodline=True)
         attr_color = self._resolve_color(attribute, is_bloodline=False) if attribute else self._default_color
 
@@ -905,11 +1066,6 @@ class ResultTextOverlay(QWidget):
         self._history_items.append(item)
         self._content_layout.insertWidget(
             self._content_layout.count() - 1, item)
-
-        # Update counts
-        self._bloodline_counts[bloodline] = self._bloodline_counts.get(bloodline, 0) + 1
-        if attribute:
-            self._attribute_counts[attribute] = self._attribute_counts.get(attribute, 0) + 1
 
         self._refresh_counter_area()
         QWidget.show(self)
@@ -923,11 +1079,17 @@ class ResultTextOverlay(QWidget):
         self._history_items.clear()
         self._bloodline_counts.clear()
         self._attribute_counts.clear()
-        self._refresh_counter_area()
+        if self._status_screenshot_on:
+            self._refresh_screenshot_counter()
+        else:
+            self._refresh_counter_area()
 
     # ── counter ───────────────────────────────────────────────────────
 
     def _refresh_counter_area(self):
+        if self._status_screenshot_on:
+            self._refresh_screenshot_counter()
+            return
         if not self._show_counter:
             return
 

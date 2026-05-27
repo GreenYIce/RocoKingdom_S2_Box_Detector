@@ -50,6 +50,8 @@ class CascadeDetectionResult:
     mode: str = "SEQ"
     sequence_result: Optional[SequenceDetectionResult] = None
     match_votes: str = ""  # only meaningful in SEQ mode
+    sub_roi1_image: Optional[np.ndarray] = None  # for screenshot preview
+    sub_roi2_image: Optional[np.ndarray] = None
 
 
 # ── Template matching ────────────────────────────────────────────────
@@ -227,6 +229,8 @@ class CascadeDetector(threading.Thread):
         self._log_every = 10
         self._show_preview = False
         self._debug_overlay_enabled = False  # transparent box overlay
+        self._latest_sub_roi1: Optional[np.ndarray] = None
+        self._latest_sub_roi2: Optional[np.ndarray] = None
         self._preview_window_open = False
         self._preview_fps_limit = 15   # max preview refresh rate
         self._last_preview_time = 0.0
@@ -651,6 +655,10 @@ class CascadeDetector(threading.Thread):
                 sub_img_2 = self._capture_sub_roi_screen(locked_sub_roi_2)
             roi_img = None
 
+        # Store latest captures for screenshot preview
+        self._latest_sub_roi1 = sub_img
+        self._latest_sub_roi2 = sub_img_2
+
         t_cap = time.time() - t_cap
 
         if sub_img is None or sub_img.size == 0:
@@ -710,7 +718,9 @@ class CascadeDetector(threading.Thread):
                 sub_roi_box=self._locked_sub_roi,
                 anchor_box=anchor_box,
                 sub_roi_box_2=self._locked_sub_roi_2, debug_frame=None,
-                status="sampling", mode="SEQ")
+                status="sampling", mode="SEQ",
+                sub_roi1_image=self._latest_sub_roi1,
+                sub_roi2_image=self._latest_sub_roi2)
 
         return None
 
@@ -794,7 +804,9 @@ class CascadeDetector(threading.Thread):
             return CascadeDetectionResult(matched=False, label=None,
                 anchor_result=None, pattern_result=None,
                 sub_roi_box=sub_roi_box, debug_frame=None,
-                status="no_match", mode="SEQ")
+                status="no_match", mode="SEQ",
+                sub_roi1_image=self._latest_sub_roi1,
+                sub_roi2_image=self._latest_sub_roi2)
 
         # --- ROI1 voting (with early termination) ---
         if seq_result_1 is None:
@@ -954,6 +966,8 @@ class CascadeDetector(threading.Thread):
             mode="SEQ",
             sequence_result=seq_result_1,
             match_votes=votes_str,
+            sub_roi1_image=self._latest_sub_roi1,
+            sub_roi2_image=self._latest_sub_roi2,
         )
 
     # ── debug logging ────────────────────────────────────────────────
