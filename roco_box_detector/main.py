@@ -30,6 +30,7 @@ class AppBridge(QObject):
     result_ready = pyqtSignal(object)   # CascadeDetectionResult
     request_re_select = pyqtSignal()
     request_toggle_panel = pyqtSignal()
+    request_toggle_lock = pyqtSignal()
     request_quit = pyqtSignal()
 
 
@@ -51,6 +52,8 @@ class App:
         self._bridge.request_re_select.connect(self._start_roi_selection)
         self._bridge.request_toggle_panel.connect(
             lambda: self.result_text.toggle_visibility())
+        self._bridge.request_toggle_lock.connect(
+            lambda: self.result_text.toggle_mouse_lock())
         self._bridge.request_quit.connect(self._quit)
 
         # Debug box overlay (transparent boxes painted over game screen)
@@ -179,11 +182,16 @@ class App:
                 lambda: self._bridge.request_toggle_panel.emit(),
                 suppress=False)
             keyboard.add_hotkey(
+                "ctrl+shift+l",
+                lambda: self._bridge.request_toggle_lock.emit(),
+                suppress=False)
+            keyboard.add_hotkey(
                 "ctrl+shift+q",
                 lambda: self._bridge.request_quit.emit(),
                 suppress=False)
             print("[Hotkeys] Ctrl+Shift+R: re-select ROI | "
-                  "Ctrl+Shift+H: toggle panel | Ctrl+Shift+Q: quit")
+                  "Ctrl+Shift+H: toggle panel | "
+                  "Ctrl+Shift+L: toggle mouse lock | Ctrl+Shift+Q: quit")
         except Exception as e:
             print(f"[WARN] Could not register hotkeys (need admin?): {e}")
 

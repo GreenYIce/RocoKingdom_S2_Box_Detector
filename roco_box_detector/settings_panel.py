@@ -872,7 +872,7 @@ class RuntimeTab(QWidget):
         p = presets.get(res, presets["2K"])
         # Update anchor
         ac = self.config.setdefault("anchor", {})
-        ac["threshold"] = 0.75
+        ac["threshold"] = 0.85
         smin, smax, ssteps = p["anchor"]
         # Duo mode: reduce anchor scale by 0.1
         if self.duo_btn.isChecked():

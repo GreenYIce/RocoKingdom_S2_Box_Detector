@@ -558,6 +558,7 @@ class ResultTextOverlay(QWidget):
         self._drag_start = QPoint()
         self._status_screenshot_on = True  # start in screenshot mode
         self._last_screenshot_count = 0.0  # cooldown for screenshot counting
+        self._mouse_locked = False
 
         self.setCursor(Qt.BlankCursor)
 
@@ -633,6 +634,11 @@ class ResultTextOverlay(QWidget):
             f"color: #aaa; font-size: {self._status_font_size}px; "
             "background: transparent;")
         hl.addWidget(self._status_lbl)
+
+        self._lock_lbl = QLabel("")
+        self._lock_lbl.setStyleSheet(
+            "color: #e04040; font-size: 11px; background: transparent; font-weight: bold;")
+        hl.addWidget(self._lock_lbl)
 
         hl.addStretch()
 
@@ -886,8 +892,33 @@ class ResultTextOverlay(QWidget):
         except Exception:
             pass
 
+    def toggle_mouse_lock(self):
+        self._mouse_locked = not self._mouse_locked
+        if self._mouse_locked:
+            self._lock_lbl.setText("锁定: 开")
+            self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            self.setCursor(Qt.BlankCursor)
+            # Disable all header buttons
+            for btn in self._header_bar.findChildren(QPushButton):
+                btn.setEnabled(False)
+            self._counter_clear_btn.setEnabled(False)
+        else:
+            self._lock_lbl.setText("")
+            self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+            self.setCursor(Qt.ArrowCursor)
+            for btn in self._header_bar.findChildren(QPushButton):
+                btn.setEnabled(True)
+            self._counter_clear_btn.setEnabled(True)
+
     def _check_alt_key(self):
-        """Alt held → interactive + visible cursor; released → click-through + hidden cursor."""
+        """Alt held → interactive + visible cursor; released → click-through + hidden cursor.
+        Mouse lock overrides: always click-through when locked."""
+        if self._mouse_locked:
+            if not self.testAttribute(Qt.WA_TransparentForMouseEvents):
+                self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+                self.setCursor(Qt.BlankCursor)
+                self._panel.setStyleSheet(self._panel_style())
+            return
         try:
             import ctypes
             alt_down = ctypes.windll.user32.GetAsyncKeyState(0x12) & 0x8000
@@ -1203,6 +1234,8 @@ class ResultTextOverlay(QWidget):
         return y <= self._HEADER_H
 
     def _alt_held(self) -> bool:
+        if self._mouse_locked:
+            return False
         try:
             import ctypes
             return bool(ctypes.windll.user32.GetAsyncKeyState(0x12) & 0x8000)

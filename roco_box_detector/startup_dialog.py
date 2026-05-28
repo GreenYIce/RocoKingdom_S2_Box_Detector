@@ -92,7 +92,7 @@ class StartupDialog(QDialog):
         self.config["game_resolution"] = res
 
         ac = self.config.setdefault("anchor", {})
-        ac["threshold"] = 0.75
+        ac["threshold"] = 0.85
         ac["scale_min"], ac["scale_max"], ac["scale_steps"] = p["anchor"]
 
         self.config["capture_mode"] = "duo" if is_duo else "solo"
