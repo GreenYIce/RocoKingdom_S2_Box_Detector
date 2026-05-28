@@ -1,0 +1,318 @@
+{
+  "anchor": {
+    "label": "box_anchor",
+    "templates": [
+      "templates/box_anchor/2b49f762-3b66-4b19-8957-ec696b260b64.png",
+      "templates/box_anchor/3beda8b7f9faa63d9315603899d98d6c.png",
+      "templates/box_anchor/689f75c5-9b79-4091-9803-e28006693d2d.png",
+      "templates/box_anchor/d6eadc1e-dbe5-46b9-9a0b-dbcad03702db.png",
+      "templates/box_anchor/ab9ab584-6a89-4f51-8837-539149060fb5.png",
+      "templates/box_anchor/污染.png",
+      "templates/box_anchor/07e31dc8-4362-4ae5-bdf6-9ee320a4c7cb.png",
+      "templates/box_anchor/15dd989e-f407-45bc-aba3-4052abe7b61e.png",
+      "templates/box_anchor/9468b5b8-59c8-4725-aec6-141018228694.png",
+      "templates/box_anchor/837d0f4c-aa64-4a05-a082-f46b21767ba1.png",
+      "templates/box_anchor/c322f103-4bb2-4d04-9467-b51fae93001e.png",
+      "templates/box_anchor/d957670d-5d24-462c-96db-1dcfbbe12773.png",
+      "templates/box_anchor/fab2bb51-c9a8-467f-8a92-018066e9d7da.png",
+      "templates/box_anchor/1.png"
+    ],
+    "threshold": 0.75,
+    "scale_min": 0.9,
+    "scale_max": 1.25,
+    "scale_steps": 5,
+    "use_grayscale": true,
+    "use_canny": false,
+    "coarse_threshold": 0.6
+  },
+  "sub_roi": {
+    "x_ratio": 0.0,
+    "y_ratio": 0.48,
+    "w_ratio": 0.6,
+    "h_ratio": 0.25
+  },
+  "sub_roi_2": {
+    "enabled": true,
+    "x_ratio": 0.02,
+    "y_ratio": 0.78,
+    "w_ratio": 0.56,
+    "h_ratio": 0.2
+  },
+  "patterns": {
+    "普通": {
+      "templates": [
+        "templates/patterns/普通1.png",
+        "templates/patterns/普通2.png",
+        "templates/patterns/普通3.png",
+        "templates/patterns/普通5.png",
+        "templates/patterns/普通6.png",
+        "templates/patterns/普通7.png",
+        "templates/patterns/普通8.png",
+        "templates/patterns/普通4.png",
+        "templates/patterns/普通9.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "奇异": {
+      "templates": [
+        "templates/patterns/奇异2.png",
+        "templates/patterns/奇异6.png",
+        "templates/patterns/奇异7.png",
+        "templates/patterns/奇异3.png",
+        "templates/patterns/奇异4.png",
+        "templates/patterns/奇异1.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "污染": {
+      "templates": [
+        "templates/patterns/污染1.png",
+        "templates/patterns/污染2.png",
+        "templates/patterns/污染3.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "混血": {
+      "templates": [
+        "templates/patterns/混血1.png",
+        "templates/patterns/混血2.png",
+        "templates/patterns/混血3.png",
+        "templates/patterns/混血4.png",
+        "templates/patterns/混血5.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "异色": {
+      "templates": [
+        "templates/patterns/异色1.png",
+        "templates/patterns/异色2.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    }
+  },
+  "patterns_2": {
+    "物防": {
+      "templates": [
+        "templates/patterns_2/物防1.png",
+        "templates/patterns_2/物防2.png",
+        "templates/patterns_2/物防3.png",
+        "templates/patterns_2/物防4.png"
+      ],
+      "threshold": 0.6,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "魔防": {
+      "templates": [
+        "templates/patterns_2/魔防1.png",
+        "templates/patterns_2/魔防2.png",
+        "templates/patterns_2/魔防3.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "物攻": {
+      "templates": [
+        "templates/patterns_2/物攻1.png",
+        "templates/patterns_2/物攻2.png",
+        "templates/patterns_2/物攻3.png",
+        "templates/patterns_2/物攻4.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "魔攻": {
+      "templates": [
+        "templates/patterns_2/魔攻1.png",
+        "templates/patterns_2/魔攻2.png",
+        "templates/patterns_2/魔攻3.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "生命": {
+      "templates": [
+        "templates/patterns_2/生命1.png",
+        "templates/patterns_2/生命2.png",
+        "templates/patterns_2/生命3.png",
+        "templates/patterns_2/生命4.png",
+        "templates/patterns_2/生命5.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    },
+    "速度": {
+      "templates": [
+        "templates/patterns_2/速度1.png",
+        "templates/patterns_2/速度2.png"
+      ],
+      "threshold": 0.65,
+      "scale_min": 0.65,
+      "scale_max": 1.35,
+      "scale_steps": 8,
+      "use_grayscale": true,
+      "use_canny": false
+    }
+  },
+  "sequence": {
+    "enabled": true,
+    "sample_delay_seconds": 0.3,
+    "sample_interval_seconds": 0.02,
+    "max_frames": 5,
+    "min_frames_for_vote": 2,
+    "selected_frame_count": 5,
+    "min_vote_count": 2,
+    "min_average_score": 0.7,
+    "require_roi2_for_result": false,
+    "stable_similarity_threshold": 0.88,
+    "frame_resize_width": 96,
+    "use_sharpness_filter": true,
+    "use_similarity_filter": false,
+    "allow_anchor_lost_frames": 2
+  },
+  "game_resolution": "2K",
+  "pattern_width_scale": {
+    "enabled": true,
+    "top_n": 3,
+    "scale_min": 0.5,
+    "scale_max": 1.0,
+    "scale_steps": 3
+  },
+  "runtime": {
+    "capture_fps": 30,
+    "hide_after_frames": 10,
+    "normalize_roi_width": 300,
+    "pattern_normalize_width": 100,
+    "anchor_skip_frames": 0,
+    "log_every_n_frames": 100,
+    "sequence_cooldown_seconds": 1.5
+  },
+  "debug": {
+    "enabled": false,
+    "show_preview_window": false,
+    "save_debug_frames": false,
+    "save_every_n_seconds": 3,
+    "debug_output_dir": "debug_output",
+    "draw_anchor_box": true,
+    "draw_sub_roi_box": true,
+    "draw_pattern_box": true,
+    "print_scores": true,
+    "save_sequence_frames": false,
+    "save_selected_frames": false
+  },
+  "overlay": {
+    "width": 680,
+    "height": 64,
+    "position": "bottom",
+    "normal_text": "● 运行中",
+    "sampling_text": "正在采样识别...",
+    "matched_prefix": "识别到：",
+    "match_show_seconds": 5.0,
+    "bg_color": "#000000",
+    "text_color": "#00007f",
+    "matched_text_color": "#00954f"
+  },
+  "result_text_overlay": {
+    "enabled": true,
+    "x": 2630,
+    "y": 521,
+    "width": 1253,
+    "height": 404,
+    "min_width": 220,
+    "min_height": 160,
+    "font_family": "微软雅黑",
+    "header_font_size": 20,
+    "status_font_size": 14,
+    "chip_font_size": 20,
+    "counter_font_size": 16,
+    "counter_title_font_size": 14,
+    "default_color": "#FFD700",
+    "max_items": 500,
+    "click_through": true,
+    "background_color": "rgba(8,10,16,190)",
+    "border_color": "rgba(255,255,255,45)",
+    "border_radius": 20,
+    "padding": 10,
+    "title": "Roco-S2-Box",
+    "scrollbar_width": 8,
+    "plus_color": "#DDDDDD",
+    "count_color": "#AAAAAA",
+    "counter_top_n": 20,
+    "show_counter_area": true,
+    "bloodline_colors": {
+      "普通": "#E8E8E8",
+      "奇异": "#FFE600",
+      "污染": "#C080FF",
+      "混血": "#FFAA00",
+      "异色": "#00AAFF"
+    },
+    "attribute_colors": {
+      "物防": "#FFD700",
+      "魔防": "#FFD700",
+      "物攻": "#FFD700",
+      "魔攻": "#FFD700",
+      "生命": "#FFD700",
+      "速度": "#66CCFF"
+    },
+    "label_colors": {
+      "普通": "#00aa00",
+      "奇异": "#ffff00",
+      "污染": "#aa55ff",
+      "混血": "#ffaa00",
+      "异色": "#00aaff",
+      "物防": "#FFD700",
+      "魔防": "#FFD700",
+      "物攻": "#FFD700",
+      "魔攻": "#FFD700",
+      "生命": "#FFD700",
+      "速度": "#FFD700"
+    },
+    "roi_fallback": "太快了没看清喵"
+  },
+  "startup_complete": true,
+  "capture_mode": "solo"
+}
