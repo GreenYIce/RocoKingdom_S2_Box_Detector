@@ -461,6 +461,7 @@ class _RTOSignals(QObject):
     toggle_preview = pyqtSignal(bool)
     toggle_debug_overlay = pyqtSignal(bool)
     set_status_text = pyqtSignal(str)
+    screenshot_mode_changed = pyqtSignal(bool)
 
 
 def _parse_rgba(s: str) -> QColor:
@@ -500,6 +501,13 @@ class ResultTextOverlay(QWidget):
         self._alt_timer.timeout.connect(self._check_alt_key)
         self._alt_timer.start()
 
+        self._cooldown_duration = self.config.get("runtime", {}).get(
+            "sequence_cooldown_seconds", 1.5)
+        self._cooldown_until = 0.0
+        self._cooldown_timer = QTimer()
+        self._cooldown_timer.setInterval(100)
+        self._cooldown_timer.timeout.connect(self._update_cooldown)
+
         # Config
         self._enabled = cfg.get("enabled", True)
         self._font_family = cfg.get("font_family", "Microsoft YaHei")
@@ -527,7 +535,7 @@ class ResultTextOverlay(QWidget):
         self._min_w = cfg.get("min_width", 220)
         self._min_h = cfg.get("min_height", 160)
 
-        # Position / size — default: center-bottom, width = screen/4
+        # Position / size — defaults on primary screen, validates across all screens
         screen = QApplication.primaryScreen()
         geom = screen.geometry() if screen else None
         if geom:
@@ -541,8 +549,7 @@ class ResultTextOverlay(QWidget):
         self._height = cfg.get("height", def_h)
         config_x = cfg.get("x", def_x)
         config_y = cfg.get("y", def_y)
-        if geom and (config_x < -500 or config_x > geom.width() + 200
-                     or config_y < -500 or config_y > geom.height() + 200):
+        if not self._pos_on_any_screen(config_x, config_y):
             self._pos_x = def_x
             self._pos_y = def_y
         else:
@@ -557,10 +564,9 @@ class ResultTextOverlay(QWidget):
         self._dragging = False
         self._drag_start = QPoint()
         self._status_screenshot_on = True  # start in screenshot mode
-        self._last_screenshot_count = 0.0  # cooldown for screenshot counting
         self._mouse_locked = False
 
-        self.setCursor(Qt.BlankCursor)
+        self.setCursor(Qt.ArrowCursor)
 
         self._build_ui()
         self.resize(self._width, self._height)
@@ -597,7 +603,7 @@ class ResultTextOverlay(QWidget):
 
     def _build_ui(self):
         self.setWindowTitle("ResultHistory")
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -670,9 +676,9 @@ class ResultTextOverlay(QWidget):
         gear.clicked.connect(lambda: self._signals.open_settings.emit())
         hl.addWidget(gear)
 
-        # Close panel
-        close_btn = self._make_header_btn("✕ 隐藏", "隐藏面板")
-        close_btn.clicked.connect(lambda: QWidget.hide(self))
+        # Minimize panel to taskbar
+        close_btn = self._make_header_btn("✕ 隐藏", "最小化到任务栏")
+        close_btn.clicked.connect(lambda: self.showMinimized())
         hl.addWidget(close_btn)
 
         # Quit app
@@ -769,6 +775,15 @@ class ResultTextOverlay(QWidget):
         self._attr_counter.setWordWrap(True)
         self._attr_counter.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         counter_layout.addWidget(self._attr_counter, 1)
+
+        # Cooldown countdown
+        self._cooldown_label = QLabel("")
+        self._cooldown_label.setObjectName("RTO_cooldown")
+        self._cooldown_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._cooldown_label.setStyleSheet(
+            f"color: #888; font-size: {self._counter_font_size}px; "
+            "background: transparent;")
+        counter_layout.addWidget(self._cooldown_label)
 
         # Clear button in counter bar
         self._counter_clear_btn = QPushButton("清空")
@@ -911,8 +926,8 @@ class ResultTextOverlay(QWidget):
             self._counter_clear_btn.setEnabled(True)
 
     def _check_alt_key(self):
-        """Alt held → interactive + visible cursor; released → click-through + hidden cursor.
-        Mouse lock overrides: always click-through when locked."""
+        """Alt held → interactive; released → click-through.
+        Mouse lock overrides: always click-through + hidden cursor when locked."""
         if self._mouse_locked:
             if not self.testAttribute(Qt.WA_TransparentForMouseEvents):
                 self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
@@ -933,7 +948,7 @@ class ResultTextOverlay(QWidget):
             elif not alt_down:
                 if not self.testAttribute(Qt.WA_TransparentForMouseEvents):
                     self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-                    self.setCursor(Qt.BlankCursor)
+                    self.setCursor(Qt.ArrowCursor)
                     self._panel.setStyleSheet(self._panel_style())
         except Exception:
             pass
@@ -972,6 +987,7 @@ class ResultTextOverlay(QWidget):
 
     def _toggle_screenshot_mode(self):
         self._status_screenshot_on = not self._status_screenshot_on
+        self._signals.screenshot_mode_changed.emit(self._status_screenshot_on)
         if self._status_screenshot_on:
             self._mode_btn.setText("📷 截图模式")
             self._mode_btn.setStyleSheet(
@@ -1003,7 +1019,7 @@ class ResultTextOverlay(QWidget):
         if total > 0:
             self._bl_counter.setText(
                 f"<html><body style='margin:0;padding:0'>"
-                f"<span style='color:#aaa;font-size:{self._counter_title_font_size}px;'>已打数量</span> "
+                f"<span style='color:#aaa;font-size:{self._counter_title_font_size}px;'>捕捉次数</span> "
                 f"<span style='color:#ffaa00;font-size:{self._counter_font_size}px;'>x {total}</span>"
                 f"</body></html>")
         else:
@@ -1023,20 +1039,6 @@ class ResultTextOverlay(QWidget):
             self._ss_ref2 = img2.copy()
         else:
             self._ss_ref2 = None
-
-        # Count in screenshot mode: each valid capture = one box (10s cooldown)
-        if self._status_screenshot_on and self._ss_ref1 is not None:
-            now = time.time()
-            if now - self._last_screenshot_count >= 10:
-                self._last_screenshot_count = now
-                dummy_label = f"screenshot_{len(self._records)}"
-                self._records.append(dummy_label)
-                if len(self._records) > self._max_items:
-                    self._records.pop(0)
-                self._refresh_screenshot_counter()
-                self._status_lbl.setText(f"📷 已打 {len(self._records)} 次")
-                self._status_lbl.setStyleSheet(
-                    f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
 
         # Use actual widget size, with fallback for pre-layout startup
         max_w = max(200, self._ss_img1.width() or self.width() * 2 // 3)
@@ -1079,15 +1081,18 @@ class ResultTextOverlay(QWidget):
         self._signals.clear_results.emit()
 
     def toggle_visibility(self):
-        if self.isVisible():
-            QWidget.hide(self)
+        if self.isMinimized():
+            self.showNormal()
+        elif self.isVisible():
+            self.showMinimized()
         else:
-            QWidget.show(self)
+            self.show()
 
     def set_status_text(self, text: str) -> None:
         self._signals.set_status_text.emit(text)
 
     def show_sampling(self):
+        self._start_cooldown()
         if self._status_screenshot_on:
             self._status_lbl.setText("📷 截图模式")
             self._status_lbl.setStyleSheet(
@@ -1098,10 +1103,9 @@ class ResultTextOverlay(QWidget):
             f"color: #66aaff; font-size: {self._status_font_size}px; background: transparent;")
 
     def show_match(self, text: str):
+        self._start_cooldown()
         if self._status_screenshot_on:
-            self._status_lbl.setText(
-                f"📷 已打 {len(self._records)} 次"
-                if self._records else "📷 截图模式")
+            self._status_lbl.setText("📷 截图模式")
             self._status_lbl.setStyleSheet(
                 f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
             return
@@ -1110,16 +1114,34 @@ class ResultTextOverlay(QWidget):
             f"color: #00954f; font-size: {self._status_font_size}px; background: transparent;")
 
     def show_no_match(self):
+        self._start_cooldown()
         if self._status_screenshot_on:
-            self._status_lbl.setText(
-                f"📷 已打 {len(self._records)} 次"
-                if self._records else "📷 截图模式")
+            dummy_label = f"screenshot_{len(self._records)}"
+            self._records.append(dummy_label)
+            if len(self._records) > self._max_items:
+                self._records.pop(0)
+            self._refresh_screenshot_counter()
+            self._status_lbl.setText("📷 截图模式")
             self._status_lbl.setStyleSheet(
-                f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
+                f"color: #44dd88; font-size: {self._status_font_size}px; "
+                "background: transparent;")
             return
         self.set_status_text("未识别到目标")
         self._status_lbl.setStyleSheet(
             f"color: #aaa; font-size: {self._status_font_size}px; background: transparent;")
+
+    def _start_cooldown(self):
+        self._cooldown_until = time.time() + self._cooldown_duration
+        if not self._cooldown_timer.isActive():
+            self._cooldown_timer.start()
+
+    def _update_cooldown(self):
+        remaining = self._cooldown_until - time.time()
+        if remaining <= 0:
+            self._cooldown_label.setText("")
+            self._cooldown_timer.stop()
+        else:
+            self._cooldown_label.setText(f"冷却 {remaining:.1f}s")
 
     # ── slots ─────────────────────────────────────────────────────────
 
@@ -1242,6 +1264,25 @@ class ResultTextOverlay(QWidget):
         except Exception:
             return False
 
+    def _current_screen(self):
+        """Return the QScreen containing this window's center, or primary."""
+        cx = self.x() + self.width() // 2
+        cy = self.y() + self.height() // 2
+        for s in QApplication.screens():
+            if s.geometry().contains(cx, cy):
+                return s
+        return QApplication.primaryScreen()
+
+    @staticmethod
+    def _pos_on_any_screen(x: int, y: int) -> bool:
+        """Check if (x, y) falls within any connected screen's geometry."""
+        for s in QApplication.screens():
+            g = s.geometry()
+            if g.x() - 200 <= x <= g.x() + g.width() + 200 and \
+               g.y() - 200 <= y <= g.y() + g.height() + 200:
+                return True
+        return False
+
     def mousePressEvent(self, event):
         if not self._alt_held():
             event.ignore()
@@ -1312,6 +1353,8 @@ class ResultTextOverlay(QWidget):
         self._max_items = cfg.get("max_items", self._max_items)
         self._show_counter = cfg.get("show_counter_area", self._show_counter)
         self._counter_top_n = cfg.get("counter_top_n", self._counter_top_n)
+        self._cooldown_duration = self.config.get("runtime", {}).get(
+            "sequence_cooldown_seconds", self._cooldown_duration)
         self._bg_color = _parse_rgba(cfg.get("background_color",
             f"rgba({self._bg_color.red()},{self._bg_color.green()},"
             f"{self._bg_color.blue()},{self._bg_color.alpha()})"))

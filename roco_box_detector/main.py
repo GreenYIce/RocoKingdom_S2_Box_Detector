@@ -87,11 +87,17 @@ class App:
             on_result=lambda r: self._bridge.result_ready.emit(r),
         )
 
+        # Wire screenshot mode → detector
+        self.result_text._signals.screenshot_mode_changed.connect(
+            self.detector.set_screenshot_only)
+        self.detector.set_screenshot_only(True)  # default: screenshot mode
+
         # Settings panel
         self.settings_window = SettingsWindow(self.config)
         self.settings_window.config_saved.connect(self._apply_settings)
 
         self.roi = None
+        self._selecting_roi = False
         self._shutting_down = False
 
     def _load_config(self) -> dict:
@@ -128,15 +134,21 @@ class App:
     # ── ROI selection ─────────────────────────────────────────────────
 
     def _start_roi_selection(self) -> None:
-        selector = ROISelector()
-        roi = selector.select()
-        if roi is not None:
-            self.roi = roi
-            self.detector.set_roi(roi)
-            print(f"[ROI] Selected: left={roi['left']}, top={roi['top']}, "
-                  f"width={roi['width']}, height={roi['height']}")
-        else:
-            print("[ROI] Selection cancelled.")
+        if self._selecting_roi:
+            return
+        self._selecting_roi = True
+        try:
+            selector = ROISelector()
+            roi = selector.select()
+            if roi is not None:
+                self.roi = roi
+                self.detector.set_roi(roi)
+                print(f"[ROI] Selected: left={roi['left']}, top={roi['top']}, "
+                      f"width={roi['width']}, height={roi['height']}")
+            else:
+                print("[ROI] Selection cancelled.")
+        finally:
+            self._selecting_roi = False
 
     # ── result processing (runs on main thread via bridge) ────────────
 
@@ -190,8 +202,8 @@ class App:
                 lambda: self._bridge.request_quit.emit(),
                 suppress=False)
             print("[Hotkeys] Ctrl+Shift+R: re-select ROI | "
-                  "Ctrl+Shift+H: toggle panel | "
-                  "Ctrl+Shift+L: toggle mouse lock | Ctrl+Shift+Q: quit")
+                  "Ctrl+Shift+H: toggle panel | Ctrl+Shift+L: lock mouse | "
+                  "Ctrl+Shift+Q: quit")
         except Exception as e:
             print(f"[WARN] Could not register hotkeys (need admin?): {e}")
 

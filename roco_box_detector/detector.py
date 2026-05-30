@@ -64,9 +64,9 @@ def match_templates_multiscale(
     scale_max: float,
     scale_steps: int,
     use_grayscale: bool = True,
-    use_canny: bool = False,
     label: str = "unknown",
     coarse_threshold: Optional[float] = None,
+    early_exit_score: float = 0.0,
 ) -> MatchResult:
     """
     Multi-template, multi-scale template matching.
@@ -100,7 +100,7 @@ def match_templates_multiscale(
         mid_scale = (scale_min + scale_max) / 2.0
         best_coarse = -1.0
         for tmpl in template_items:
-            tmpl_img = _select_template_variant(tmpl, use_grayscale, use_canny)
+            tmpl_img = _select_template_variant(tmpl, use_grayscale)
             if tmpl_img is None or tmpl_img.size == 0:
                 continue
             scaled = safe_resize_template(tmpl_img, mid_scale)
@@ -146,10 +146,16 @@ def match_templates_multiscale(
                     best_box = (max_loc[0], max_loc[1], sv.width, sv.height)
                     best_tmpl_path = tmpl.path
                     best_scale = sv.scale
+                    if early_exit_score > 0 and best_score >= early_exit_score:
+                        return MatchResult(
+                            stage=label, label=label, matched=True,
+                            score=float(best_score), box=best_box,
+                            template_path=best_tmpl_path,
+                            scale=float(best_scale))
     else:
         # Fallback: runtime resize (should not normally be reached)
         for tmpl in template_items:
-            tmpl_img = _select_template_variant(tmpl, use_grayscale, use_canny)
+            tmpl_img = _select_template_variant(tmpl, use_grayscale)
             if tmpl_img is None or tmpl_img.size == 0:
                 continue
             for scale in np.linspace(scale_min, scale_max, scale_steps):
@@ -175,6 +181,12 @@ def match_templates_multiscale(
                     best_box = (max_loc[0], max_loc[1], tw, th)
                     best_tmpl_path = tmpl.path
                     best_scale = scale
+                    if early_exit_score > 0 and best_score >= early_exit_score:
+                        return MatchResult(
+                            stage=label, label=label, matched=True,
+                            score=float(best_score), box=best_box,
+                            template_path=best_tmpl_path,
+                            scale=float(best_scale))
 
     matched = best_score >= threshold and best_box is not None
 
@@ -189,10 +201,7 @@ def match_templates_multiscale(
 def _select_template_variant(
     tmpl: TemplateItem,
     use_grayscale: bool,
-    use_canny: bool,
 ) -> Optional[np.ndarray]:
-    if use_canny and tmpl.image_canny is not None:
-        return tmpl.image_canny
     if use_grayscale:
         return tmpl.image_gray
     return tmpl.image_color
@@ -229,6 +238,7 @@ class CascadeDetector(threading.Thread):
         self._log_every = 10
         self._show_preview = False
         self._debug_overlay_enabled = False  # transparent box overlay
+        self._screenshot_only = False
         self._latest_sub_roi1: Optional[np.ndarray] = None
         self._latest_sub_roi2: Optional[np.ndarray] = None
         self._preview_window_open = False
@@ -249,6 +259,7 @@ class CascadeDetector(threading.Thread):
         self._dbg_pattern_label: Optional[str] = None
         self._dbg_pattern_label_2: Optional[str] = None
         self._dbg_status_text: str = ""
+        self._last_cycle_ms: float = 0.0
 
         self._logger = ThrottledLogger(every_n=self._log_every)
         self._frame_idx = 0
@@ -364,6 +375,17 @@ class CascadeDetector(threading.Thread):
     def set_roi(self, roi: Dict[str, int]) -> None:
         self.roi = roi
         self.cache.rescale_anchor(roi["width"], self._norm_width)
+        # Reset all sampling state to avoid stale state from previous ROI
+        self._sampling_state = "idle"
+        self._seq_triggered = False
+        self._cooldown_until = 0
+        self._sampling_frames.clear()
+        self._sampling_match_results_1.clear()
+        self._sampling_match_results_2.clear()
+        self._locked_anchor_box = None
+        self._locked_sub_roi = None
+        self._locked_sub_roi_2 = None
+        self._sampling_seq_idx = 0
         self._pause_event.set()
 
     def refresh_anchor_scale(self) -> None:
@@ -377,6 +399,10 @@ class CascadeDetector(threading.Thread):
     def set_preview_enabled(self, enabled: bool) -> None:
         self._show_preview = enabled
 
+    def set_screenshot_only(self, enabled: bool) -> None:
+        """In screenshot-only mode, stop after first sub-ROI capture. No pattern matching."""
+        self._screenshot_only = enabled
+
     def stop(self) -> None:
         self._show_preview = False
         self._stop_event.set()
@@ -387,6 +413,7 @@ class CascadeDetector(threading.Thread):
     def run(self) -> None:
         self._sct = mss.mss()
         interval = 1.0 / max(1, self._fps)
+        _mss_frame = 0
 
         try:
             while not self._stop_event.is_set():
@@ -399,6 +426,12 @@ class CascadeDetector(threading.Thread):
                     time.sleep(0.1)
                     continue
 
+                # Periodic mss recreation to prevent GDI handle leak
+                _mss_frame += 1
+                if _mss_frame % 500 == 0:
+                    self._sct.close()
+                    self._sct = mss.mss()
+
                 t0 = time.time()
 
                 result = self._detect_one_frame()
@@ -406,6 +439,7 @@ class CascadeDetector(threading.Thread):
                     self.on_result(result)
 
                 elapsed = time.time() - t0
+                self._last_cycle_ms = elapsed * 1000
                 if elapsed < interval:
                     time.sleep(interval - elapsed)
 
@@ -442,6 +476,7 @@ class CascadeDetector(threading.Thread):
             if now < self._cooldown_until:
                 return None
             self._sampling_state = "idle"
+            self._seq_triggered = False
 
         # ── frame skip: skip anchor matching every N frames ──
         if self._anchor_skip > 0 and self._frame_idx % (self._anchor_skip + 1) != 0:
@@ -487,11 +522,13 @@ class CascadeDetector(threading.Thread):
         anchor_image = preprocess_image(
             normalized_roi,
             use_grayscale=anchor_group.use_grayscale,
-            use_canny=anchor_group.use_canny,
+            preprocess_mode=anchor_group.preprocess_mode,
+            gamma=anchor_group.gamma,
         )
 
         t_anchor = time.time()
         coarse_th = self.config["anchor"].get("coarse_threshold", 0)
+        early_exit = self.config["anchor"].get("early_exit_score", 0.9)
         anchor_result = match_templates_multiscale(
             anchor_image,
             anchor_group.items,
@@ -500,9 +537,9 @@ class CascadeDetector(threading.Thread):
             anchor_group.scale_max * scale_factor,
             anchor_group.scale_steps,
             anchor_group.use_grayscale,
-            anchor_group.use_canny,
             label="anchor",
             coarse_threshold=coarse_th if coarse_th > 0 else None,
+            early_exit_score=early_exit,
         )
         t_anchor = time.time() - t_anchor
 
@@ -592,9 +629,13 @@ class CascadeDetector(threading.Thread):
             pattern_label=self._dbg_pattern_label,
             pattern_label_2=self._dbg_pattern_label_2,
         )
+        bar_h = 26
+        cv2.rectangle(debug, (0, 0), (debug.shape[1], bar_h), (0, 0, 0), -1)
+        text = f"cycle={self._last_cycle_ms:.0f}ms"
         if self._dbg_status_text:
-            cv2.putText(debug, self._dbg_status_text, (8, 18),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+            text += f"  {self._dbg_status_text}"
+        cv2.putText(debug, text, (8, 17),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
         try:
             cv2.imshow("Roco Box Detector Debug", debug)
             self._preview_window_open = True
@@ -655,9 +696,10 @@ class CascadeDetector(threading.Thread):
                 sub_img_2 = self._capture_sub_roi_screen(locked_sub_roi_2)
             roi_img = None
 
-        # Store latest captures for screenshot preview
-        self._latest_sub_roi1 = sub_img
-        self._latest_sub_roi2 = sub_img_2
+        # Store first-frame captures for screenshot preview (not overwritten)
+        if self._sampling_seq_idx == 0:
+            self._latest_sub_roi1 = sub_img
+            self._latest_sub_roi2 = sub_img_2
 
         t_cap = time.time() - t_cap
 
@@ -682,6 +724,28 @@ class CascadeDetector(threading.Thread):
         collected = len(self._sampling_frames)
         print(f"[Sequence] captured frame {collected}/{self._seq_max_frames} "
               f"at elapsed={elapsed:.3f}s cap={t_cap*1000:.1f}ms")
+
+        # Screenshot-only mode: return immediately, skip all pattern matching
+        if self._screenshot_only:
+            print("[Sequence] screenshot-only: frame captured, skipping pattern match")
+            self._sampling_frames.clear()
+            self._locked_anchor_box = None
+            self._locked_sub_roi = None
+            self._locked_sub_roi_2 = None
+            self._sampling_state = "cooldown"
+            self._seq_triggered = True
+            self._cooldown_until = now + self._cooldown_seconds
+            self._dbg_sub_roi_box = locked_sub_roi
+            self._dbg_sub_roi_box_2 = locked_sub_roi_2
+            return CascadeDetectionResult(
+                matched=False, label=None,
+                anchor_result=None, pattern_result=None,
+                sub_roi_box=locked_sub_roi, anchor_box=locked_anchor,
+                sub_roi_box_2=locked_sub_roi_2, debug_frame=None,
+                status="no_match", mode="SEQ",
+                sub_roi1_image=self._latest_sub_roi1,
+                sub_roi2_image=self._latest_sub_roi2,
+            )
 
         # Defer all pattern matching to finalize — don't block the capture loop.
         if collected >= self._seq_max_frames:
@@ -759,17 +823,6 @@ class CascadeDetector(threading.Thread):
         print(f"[Sequence] Start sampling: delay={self._seq_sample_delay}s "
               f"interval={self._seq_sample_interval}s max_frames={self._seq_max_frames} "
               f"roi2={'on' if self._locked_sub_roi_2 else 'off'}")
-
-    def _cancel_sampling(self, now: float) -> None:
-        self._sampling_state = "cooldown"
-        self._seq_triggered = True
-        self._cooldown_until = now + self._cooldown_seconds
-        self._sampling_frames.clear()
-        self._sampling_match_results_1.clear()
-        self._sampling_match_results_2.clear()
-        self._locked_anchor_box = None
-        self._locked_sub_roi = None
-        self._locked_sub_roi_2 = None
 
     def _finalize_sampling(
         self,

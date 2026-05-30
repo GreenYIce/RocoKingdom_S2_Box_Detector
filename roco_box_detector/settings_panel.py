@@ -174,15 +174,57 @@ class AnchorTab(QWidget):
         self.gray_cb = QCheckBox("灰度匹配")
         self.gray_cb.setChecked(ac["use_grayscale"])
         form.addRow(self.gray_cb)
-        self.canny_cb = QCheckBox("Canny边缘匹配")
-        self.canny_cb.setChecked(ac["use_canny"])
-        form.addRow(self.canny_cb)
+        # Preprocess mode
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("预处理模式"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["none", "gamma", "otsu"])
+        cur_mode = ac.get("preprocess_mode", "none")
+        self.mode_combo.setCurrentText(cur_mode if cur_mode in ["none", "gamma", "otsu"] else "none")
+        self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        mode_layout.addWidget(self.mode_combo, 1)
+        form.addRow(mode_layout)
+
+        # Gamma slider (only visible when mode == gamma)
+        self._gamma_row = QHBoxLayout()
+        lbl = QLabel("Gamma值")
+        lbl.setFixedWidth(120)
+        self._gamma_row.addWidget(lbl)
+
+        self.gamma_slider = QSlider(Qt.Horizontal)
+        self.gamma_slider.setRange(4, 40)  # 0.20 to 2.00, step 0.05 → /20
+        self.gamma_slider.setValue(int(ac.get("gamma", 0.75) / 0.05))
+        self._gamma_row.addWidget(self.gamma_slider, 1)
+
+        self.gamma_spin = QDoubleSpinBox()
+        self.gamma_spin.setRange(0.20, 2.00)
+        self.gamma_spin.setSingleStep(0.05)
+        self.gamma_spin.setDecimals(2)
+        self.gamma_spin.setValue(ac.get("gamma", 0.75))
+        self.gamma_spin.setFixedWidth(80)
+        self._gamma_row.addWidget(self.gamma_spin)
+
+        self.gamma_slider.valueChanged.connect(
+            lambda v: self.gamma_spin.setValue(v * 0.05))
+        self.gamma_spin.valueChanged.connect(
+            lambda v: self.gamma_slider.blockSignals(True) or
+            self.gamma_slider.setValue(int(v / 0.05)) or
+            self.gamma_slider.blockSignals(False))
+
+        form.addRow(self._gamma_row)
+        self._on_mode_changed(cur_mode)
 
         self.coarse_thresh_slider, self.coarse_thresh_spin = _make_slider_spin_double(
             self, form, "粗筛阈值", 0.00, 0.80, ac.get("coarse_threshold", 0.36), 0.01, 2)
         hint = QLabel("0=关闭粗筛。粗筛用单档scale快速过滤空帧，设太高会漏掉真盒子。")
         hint.setStyleSheet("color: #888; font-size: 10px;")
         form.addRow(hint)
+
+        self.early_exit_slider, self.early_exit_spin = _make_slider_spin_double(
+            self, form, "高分提前退出", 0.00, 0.99, ac.get("early_exit_score", 0.9), 0.01, 2)
+        hint2 = QLabel("0=关闭。匹配分数达到此值立即返回，不等其他模板/尺度跑完。")
+        hint2.setStyleSheet("color: #888; font-size: 10px;")
+        form.addRow(hint2)
 
         _add_separator(form)
 
@@ -206,6 +248,13 @@ class AnchorTab(QWidget):
         layout.addLayout(form)
         layout.addStretch()
 
+    def _on_mode_changed(self, mode: str):
+        visible = mode == "gamma"
+        for i in range(self._gamma_row.count()):
+            w = self._gamma_row.itemAt(i).widget()
+            if w:
+                w.setVisible(visible)
+
     def _add_template(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "选择Anchor模板图片", resolve_path("templates/box_anchor"),
@@ -228,7 +277,9 @@ class AnchorTab(QWidget):
         ac["scale_max"] = self.scale_max_spin.value()
         ac["scale_steps"] = self.scale_steps_spin.value()
         ac["use_grayscale"] = self.gray_cb.isChecked()
-        ac["use_canny"] = self.canny_cb.isChecked()
+        ac["preprocess_mode"] = self.mode_combo.currentText()
+        ac["gamma"] = self.gamma_spin.value()
+        ac["early_exit_score"] = self.early_exit_spin.value()
         ac["coarse_threshold"] = self.coarse_thresh_spin.value()
         ac["templates"] = [
             self.tmpl_list.item(i).text()
@@ -422,9 +473,6 @@ class PatternsTab(QWidget):
         self.gray_cb = QCheckBox("灰度匹配")
         self.gray_cb.setChecked(True)
         form.addRow(self.gray_cb)
-        self.canny_cb = QCheckBox("Canny边缘匹配")
-        self.canny_cb.setChecked(False)
-        form.addRow(self.canny_cb)
         layout.addLayout(form)
 
         # Template list
@@ -476,7 +524,6 @@ class PatternsTab(QWidget):
         self.scale_max_spin.setValue(pcfg["scale_max"])
         self.scale_steps_spin.setValue(pcfg["scale_steps"])
         self.gray_cb.setChecked(pcfg["use_grayscale"])
-        self.canny_cb.setChecked(pcfg["use_canny"])
         self.tmpl_list.clear()
         for p in pcfg["templates"]:
             self.tmpl_list.addItem(p)
@@ -509,7 +556,6 @@ class PatternsTab(QWidget):
                 "scale_max": 1.25,
                 "scale_steps": 11,
                 "use_grayscale": True,
-                "use_canny": False,
             }
             self._refresh_combo()
             idx = self.pattern_combo.findText(name)
@@ -558,7 +604,6 @@ class PatternsTab(QWidget):
         pcfg["scale_max"] = self.scale_max_spin.value()
         pcfg["scale_steps"] = self.scale_steps_spin.value()
         pcfg["use_grayscale"] = self.gray_cb.isChecked()
-        pcfg["use_canny"] = self.canny_cb.isChecked()
         pcfg["templates"] = [
             self.tmpl_list.item(i).text()
             for i in range(self.tmpl_list.count())
@@ -605,9 +650,6 @@ class Patterns2Tab(QWidget):
         self.gray_cb = QCheckBox("灰度匹配")
         self.gray_cb.setChecked(True)
         form.addRow(self.gray_cb)
-        self.canny_cb = QCheckBox("Canny边缘匹配")
-        self.canny_cb.setChecked(False)
-        form.addRow(self.canny_cb)
         layout.addLayout(form)
 
         # Template list
@@ -662,7 +704,6 @@ class Patterns2Tab(QWidget):
         self.scale_max_spin.setValue(pcfg["scale_max"])
         self.scale_steps_spin.setValue(pcfg["scale_steps"])
         self.gray_cb.setChecked(pcfg["use_grayscale"])
-        self.canny_cb.setChecked(pcfg["use_canny"])
         self.tmpl_list.clear()
         for p in pcfg["templates"]:
             self.tmpl_list.addItem(p)
@@ -695,7 +736,6 @@ class Patterns2Tab(QWidget):
                 "scale_max": 1.25,
                 "scale_steps": 11,
                 "use_grayscale": True,
-                "use_canny": False,
             }
             self._refresh_combo()
             idx = self.pattern_combo.findText(name)
@@ -745,7 +785,6 @@ class Patterns2Tab(QWidget):
         pcfg["scale_max"] = self.scale_max_spin.value()
         pcfg["scale_steps"] = self.scale_steps_spin.value()
         pcfg["use_grayscale"] = self.gray_cb.isChecked()
-        pcfg["use_canny"] = self.canny_cb.isChecked()
         pcfg["templates"] = [
             self.tmpl_list.item(i).text()
             for i in range(self.tmpl_list.count())
@@ -794,12 +833,6 @@ class RuntimeTab(QWidget):
         form.addRow(mode_row)
 
         rt = self.config["runtime"]
-        self.fps_spin = QSpinBox()
-        self.fps_spin.setRange(1, 60)
-        self.fps_spin.setValue(rt["capture_fps"])
-        self.fps_spin.setSuffix(" fps")
-        form.addRow("检测帧率", self.fps_spin)
-
         self.norm_spin = QSpinBox()
         self.norm_spin.setRange(0, 3840)
         self.norm_spin.setValue(rt["normalize_roi_width"])
@@ -819,42 +852,24 @@ class RuntimeTab(QWidget):
         self.log_spin.setValue(rt["log_every_n_frames"])
         form.addRow("每N帧输出日志", self.log_spin)
 
-        self.hide_spin = QSpinBox()
-        self.hide_spin.setRange(1, 300)
-        self.hide_spin.setValue(rt["hide_after_frames"])
-        self.hide_spin.setSuffix(" 帧")
-        form.addRow("识别消失延迟", self.hide_spin)
+        seq = self.config.get("sequence", {})
+        self.delay_spin = QDoubleSpinBox()
+        self.delay_spin.setRange(0.0, 2.0)
+        self.delay_spin.setSingleStep(0.05)
+        self.delay_spin.setDecimals(2)
+        self.delay_spin.setValue(seq.get("sample_delay_seconds", 0.1))
+        self.delay_spin.setSuffix(" 秒")
+        form.addRow("采样延迟(delay)", self.delay_spin)
+
+        self.cooldown_spin = QDoubleSpinBox()
+        self.cooldown_spin.setRange(0.0, 10.0)
+        self.cooldown_spin.setSingleStep(0.1)
+        self.cooldown_spin.setDecimals(1)
+        self.cooldown_spin.setValue(rt.get("sequence_cooldown_seconds", 1.5))
+        self.cooldown_spin.setSuffix(" 秒")
+        form.addRow("两次识别最小间隔", self.cooldown_spin)
 
         layout.addLayout(form)
-
-        # ── width-only scale group ──
-        ws_cfg = self.config.get("pattern_width_scale", {})
-        ws_group = QGroupBox("宽度缩放匹配 (对抗透视畸变)")
-        ws_layout = QFormLayout(ws_group)
-
-        self.ws_enabled_cb = _make_checkbox_row(ws_layout, "启用", ws_cfg.get("enabled", False))
-        hint = QLabel("对每个图案组中最宽的几个模板，额外生成仅压缩宽度的缩放变体")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888; font-size: 10px;")
-        ws_layout.addRow(hint)
-
-        self.ws_top_n_spin = QSpinBox()
-        self.ws_top_n_spin.setRange(1, 10)
-        self.ws_top_n_spin.setValue(ws_cfg.get("top_n", 3))
-        self.ws_top_n_spin.setSuffix(" 个最宽模板")
-        ws_layout.addRow("覆盖模板数", self.ws_top_n_spin)
-
-        self.ws_scmin_slider, self.ws_scmin_spin = _make_slider_spin_double(
-            self, ws_layout, "最小宽度比", 0.30, 0.95, ws_cfg.get("scale_min", 0.5), 0.05, 2)
-        self.ws_scmax_slider, self.ws_scmax_spin = _make_slider_spin_double(
-            self, ws_layout, "最大宽度比", 0.50, 1.00, ws_cfg.get("scale_max", 1.0), 0.05, 2)
-
-        self.ws_scsteps_spin = QSpinBox()
-        self.ws_scsteps_spin.setRange(2, 20)
-        self.ws_scsteps_spin.setValue(ws_cfg.get("scale_steps", 5))
-        ws_layout.addRow("宽度缩放档数", self.ws_scsteps_spin)
-
-        layout.addWidget(ws_group)
         layout.addStretch()
 
     def _apply_mode(self):
@@ -889,74 +904,12 @@ class RuntimeTab(QWidget):
         cfg["game_resolution"] = self.res_combo.currentText()
         cfg["capture_mode"] = "duo" if self.duo_btn.isChecked() else "solo"
         rt = cfg["runtime"]
-        rt["capture_fps"] = self.fps_spin.value()
         rt["normalize_roi_width"] = self.norm_spin.value()
         rt["anchor_skip_frames"] = self.skip_spin.value()
         rt["log_every_n_frames"] = self.log_spin.value()
-        rt["hide_after_frames"] = self.hide_spin.value()
-        ws = cfg.setdefault("pattern_width_scale", {})
-        ws["enabled"] = self.ws_enabled_cb.isChecked()
-        ws["top_n"] = self.ws_top_n_spin.value()
-        ws["scale_min"] = self.ws_scmin_spin.value()
-        ws["scale_max"] = self.ws_scmax_spin.value()
-        ws["scale_steps"] = self.ws_scsteps_spin.value()
-
-
-class DebugTab(QWidget):
-    def __init__(self, config: dict, parent=None):
-        super().__init__(parent)
-        self.config = config
-        self._build()
-
-    def _build(self):
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-
-        db = self.config["debug"]
-        self.enabled_cb = _make_checkbox_row(form, "启用调试", db["enabled"])
-        self.show_preview_cb = _make_checkbox_row(form, "显示预览窗口", db["show_preview_window"])
-        self.save_frames_cb = _make_checkbox_row(form, "保存调试图片", db["save_debug_frames"])
-
-        self.save_interval_spin = QSpinBox()
-        self.save_interval_spin.setRange(1, 60)
-        self.save_interval_spin.setValue(db["save_every_n_seconds"])
-        self.save_interval_spin.setSuffix(" 秒")
-        form.addRow("保存间隔", self.save_interval_spin)
-
-        self.draw_anchor_cb = _make_checkbox_row(form, "画Anchor框 (蓝)", db["draw_anchor_box"])
-        self.draw_sub_cb = _make_checkbox_row(form, "画Sub-ROI框 (黄)", db["draw_sub_roi_box"])
-        self.draw_pattern_cb = _make_checkbox_row(form, "画Pattern框 (绿/红)", db["draw_pattern_box"])
-        self.print_scores_cb = _make_checkbox_row(form, "控制台输出分数", db["print_scores"])
-
-        _add_separator(form)
-
-        dir_row = QHBoxLayout()
-        self.dir_edit = QLineEdit(db["debug_output_dir"])
-        dir_row.addWidget(self.dir_edit)
-        browse_btn = QPushButton("浏览...")
-        browse_btn.clicked.connect(self._browse_dir)
-        dir_row.addWidget(browse_btn)
-        form.addRow("输出目录", dir_row)
-
-        layout.addLayout(form)
-        layout.addStretch()
-
-    def _browse_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "选择调试输出目录", self.dir_edit.text())
-        if d:
-            self.dir_edit.setText(d)
-
-    def collect(self, cfg: dict):
-        db = cfg["debug"]
-        db["enabled"] = self.enabled_cb.isChecked()
-        db["show_preview_window"] = self.show_preview_cb.isChecked()
-        db["save_debug_frames"] = self.save_frames_cb.isChecked()
-        db["save_every_n_seconds"] = self.save_interval_spin.value()
-        db["draw_anchor_box"] = self.draw_anchor_cb.isChecked()
-        db["draw_sub_roi_box"] = self.draw_sub_cb.isChecked()
-        db["draw_pattern_box"] = self.draw_pattern_cb.isChecked()
-        db["print_scores"] = self.print_scores_cb.isChecked()
-        db["debug_output_dir"] = self.dir_edit.text()
+        seq = cfg.setdefault("sequence", {})
+        seq["sample_delay_seconds"] = self.delay_spin.value()
+        rt["sequence_cooldown_seconds"] = self.cooldown_spin.value()
 
 
 def _make_color_row(layout, label_text, default_color):
@@ -989,75 +942,6 @@ def _make_color_row(layout, label_text, default_color):
         f"background: {t}; border: 1px solid #555; border-radius: 3px;"))
     layout.addRow(row)
     return hex_edit
-
-
-class OverlayTab(QWidget):
-    def __init__(self, config: dict, parent=None):
-        super().__init__(parent)
-        self.config = config
-        self._build()
-
-    def _build(self):
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-
-        ov = self.config["overlay"]
-        self.width_spin = QSpinBox()
-        self.width_spin.setRange(200, 1920)
-        self.width_spin.setValue(ov["width"])
-        self.width_spin.setSuffix(" px")
-        form.addRow("悬浮窗宽度", self.width_spin)
-
-        self.height_spin = QSpinBox()
-        self.height_spin.setRange(30, 200)
-        self.height_spin.setValue(ov["height"])
-        self.height_spin.setSuffix(" px")
-        form.addRow("悬浮窗高度", self.height_spin)
-
-        self.pos_combo = QComboBox()
-        self.pos_combo.addItems(["top", "bottom", "center"])
-        self.pos_combo.setCurrentText(ov["position"])
-        form.addRow("悬浮窗位置", self.pos_combo)
-
-        self.duration_spin = QDoubleSpinBox()
-        self.duration_spin.setRange(0.5, 60.0)
-        self.duration_spin.setSingleStep(0.5)
-        self.duration_spin.setDecimals(1)
-        self.duration_spin.setValue(ov.get("match_show_seconds", 3.0))
-        self.duration_spin.setSuffix(" 秒")
-        form.addRow("识别提示持续", self.duration_spin)
-
-        form.addRow(QLabel(""))
-
-        self.normal_edit = QLineEdit(ov["normal_text"])
-        form.addRow("默认文本", self.normal_edit)
-
-        self.prefix_edit = QLineEdit(ov.get("matched_prefix", "识别到："))
-        form.addRow("识别前缀", self.prefix_edit)
-
-        form.addRow(QLabel(""))
-
-        self.bg_color_edit = _make_color_row(form, "背景颜色",
-                                              ov.get("bg_color", "rgba(0, 0, 0, 180)"))
-        self.text_color_edit = _make_color_row(form, "默认文字颜色",
-                                               ov.get("text_color", "#ffffff"))
-        self.matched_color_edit = _make_color_row(form, "识别文字颜色",
-                                                  ov.get("matched_text_color", "#00ff88"))
-
-        layout.addLayout(form)
-        layout.addStretch()
-
-    def collect(self, cfg: dict):
-        ov = cfg["overlay"]
-        ov["width"] = self.width_spin.value()
-        ov["height"] = self.height_spin.value()
-        ov["position"] = self.pos_combo.currentText()
-        ov["match_show_seconds"] = self.duration_spin.value()
-        ov["normal_text"] = self.normal_edit.text()
-        ov["matched_prefix"] = self.prefix_edit.text()
-        ov["bg_color"] = self.bg_color_edit.text()
-        ov["text_color"] = self.text_color_edit.text()
-        ov["matched_text_color"] = self.matched_color_edit.text()
 
 
 # ── Result Text Tab ──────────────────────────────────────────────────
@@ -1330,18 +1214,13 @@ class SettingsWindow(QWidget):
         self.patterns2_tab = Patterns2Tab(self._working_config)
         self.runtime_tab = RuntimeTab(self._working_config)
         self.runtime_tab.resolution_changed.connect(self._on_resolution_changed)
-        self.debug_tab = DebugTab(self._working_config)
-        self.overlay_tab = OverlayTab(self._working_config)
-
-        self.tabs.addTab(self.anchor_tab, "Anchor")
-        self.tabs.addTab(self.subroi_tab, "黄框1")
-        self.tabs.addTab(self.subroi2_tab, "黄框2")
+        self.tabs.addTab(self.anchor_tab, "盲盒样本")
+        self.tabs.addTab(self.subroi_tab, "识别区域1")
+        self.tabs.addTab(self.subroi2_tab, "识别区域2")
         self.tabs.addTab(self.patterns_tab, "样本1")
         self.tabs.addTab(self.patterns2_tab, "样本2")
-        self.tabs.addTab(self.runtime_tab, "Runtime")
-        self.tabs.addTab(self.debug_tab, "Debug")
+        self.tabs.addTab(self.runtime_tab, "基础设置")
         self.result_text_tab = ResultTextTab(self._working_config)
-        self.tabs.addTab(self.overlay_tab, "悬浮窗")
         self.tabs.addTab(self.result_text_tab, "提示文字")
 
         main_layout.addWidget(self.tabs)
@@ -1387,8 +1266,6 @@ class SettingsWindow(QWidget):
         self.patterns_tab.config = self._working_config
         self.patterns2_tab.config = self._working_config
         self.runtime_tab.config = self._working_config
-        self.debug_tab.config = self._working_config
-        self.overlay_tab.config = self._working_config
         self.result_text_tab.config = self._working_config
         self.patterns_tab._refresh_combo()
         self.patterns2_tab._refresh_combo()
@@ -1401,8 +1278,6 @@ class SettingsWindow(QWidget):
         self.patterns_tab.collect(self._working_config)
         self.patterns2_tab.collect(self._working_config)
         self.runtime_tab.collect(self._working_config)
-        self.debug_tab.collect(self._working_config)
-        self.overlay_tab.collect(self._working_config)
         self.result_text_tab.collect(self._working_config)
         return self._working_config
 

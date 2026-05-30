@@ -217,7 +217,6 @@ def match_single_frame_to_patterns(
         sub_processed = preprocess_image(
             sub_roi_image,
             use_grayscale=pgroup.use_grayscale,
-            use_canny=pgroup.use_canny,
         )
         if sub_processed is None or sub_processed.size == 0:
             continue
@@ -229,7 +228,7 @@ def match_single_frame_to_patterns(
         img_h, img_w = sub_processed.shape[:2]
 
         for tmpl in pgroup.items:
-            tmpl_img = _select_template_variant(tmpl, pgroup.use_grayscale, pgroup.use_canny)
+            tmpl_img = _select_template_variant(tmpl, pgroup.use_grayscale)
             if tmpl_img is None:
                 continue
             for scale in np.linspace(pgroup.scale_min, pgroup.scale_max, pgroup.scale_steps):
@@ -282,10 +281,8 @@ def match_single_frame_to_patterns(
 
 
 def _select_template_variant(
-    tmpl: TemplateItem, use_grayscale: bool, use_canny: bool
+    tmpl: TemplateItem, use_grayscale: bool,
 ) -> Optional[np.ndarray]:
-    if use_canny and tmpl.image_canny is not None:
-        return tmpl.image_canny
     if use_grayscale:
         return tmpl.image_gray
     return tmpl.image_color

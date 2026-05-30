@@ -46,21 +46,37 @@ def imread_chinese(path: str) -> np.ndarray | None:
         return None
 
 
+def apply_preprocess(gray: np.ndarray, mode: str, gamma: float = 0.75) -> np.ndarray:
+    """Apply a post-grayscale preprocessing mode.
+
+    Modes:
+      "none"   — pass-through
+      "gamma"  — gamma correction (gamma < 1 brightens, > 1 darkens)
+      "otsu"   — Otsu binary threshold (0 or 255)
+    """
+    if gray is None or mode == "none" or not mode:
+        return gray
+    if mode == "gamma":
+        table = ((np.arange(256) / 255.0) ** gamma * 255).astype(np.uint8)
+        return cv2.LUT(gray, table)
+    if mode == "otsu":
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return binary
+    return gray
+
+
 def preprocess_image(
     image: np.ndarray,
     use_grayscale: bool = True,
-    use_canny: bool = False,
-    canny_low: int = 50,
-    canny_high: int = 150,
-) -> np.ndarray:
+    preprocess_mode: str = "none",
+    gamma: float = 0.75,
+) -> np.ndarray | None:
     """Unified preprocessing for both ROI frames and templates."""
     if image is None:
         return None
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image.copy()
-    if use_canny:
-        return cv2.Canny(gray, canny_low, canny_high)
     if use_grayscale:
-        return gray
+        return apply_preprocess(gray, preprocess_mode, gamma)
     return image if image.ndim == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
 

@@ -28,7 +28,6 @@ class TemplateItem:
     label: str
     image_color: np.ndarray
     image_gray: np.ndarray
-    image_canny: Optional[np.ndarray] = None
     mask: Optional[np.ndarray] = None
     scaled_variants: List[ScaledVariant] = field(default_factory=list)
 
@@ -41,8 +40,9 @@ class TemplateGroup:
     scale_max: float
     scale_steps: int
     use_grayscale: bool
-    use_canny: bool
     items: List[TemplateItem] = field(default_factory=list)
+    preprocess_mode: str = "none"
+    gamma: float = 0.75
 
 
 class TemplateCache:
@@ -117,42 +117,44 @@ class TemplateCache:
             config["anchor"]["scale_max"],
             config["anchor"]["scale_steps"],
             config["anchor"]["use_grayscale"],
-            config["anchor"]["use_canny"],
             with_mask=False,
             pre_scale=False,
+            preprocess_mode=config["anchor"].get("preprocess_mode", "none"),
+            gamma=config["anchor"].get("gamma", 0.75),
         )
 
         for name, pcfg in config.get("patterns", {}).items():
             group = self._load_group(
                 pcfg["templates"], name, pcfg["threshold"],
                 pcfg["scale_min"], pcfg["scale_max"], pcfg["scale_steps"],
-                pcfg["use_grayscale"], pcfg["use_canny"],
+                pcfg["use_grayscale"],
                 with_mask=True, pre_scale=True,
             )
-            self._add_width_only_scales(group.items)
             self.pattern_groups[name] = group
 
         for name, pcfg in config.get("patterns_2", {}).items():
             group = self._load_group(
                 pcfg["templates"], name, pcfg["threshold"],
                 pcfg["scale_min"], pcfg["scale_max"], pcfg["scale_steps"],
-                pcfg["use_grayscale"], pcfg["use_canny"],
+                pcfg["use_grayscale"],
                 with_mask=True, pre_scale=True,
             )
-            self._add_width_only_scales(group.items)
             self.pattern_groups_2[name] = group
 
     def _load_group(
         self, paths, label, threshold, scale_min, scale_max, scale_steps,
-        use_grayscale, use_canny, with_mask=False, pre_scale=True,
+        use_grayscale, with_mask=False, pre_scale=True,
+        preprocess_mode="none", gamma=0.75,
     ) -> TemplateGroup:
         group = TemplateGroup(
             label=label, threshold=threshold,
             scale_min=scale_min, scale_max=scale_max, scale_steps=scale_steps,
-            use_grayscale=use_grayscale, use_canny=use_canny,
+            use_grayscale=use_grayscale,
+            preprocess_mode=preprocess_mode, gamma=gamma,
         )
         for p in paths:
-            item = self._load_item(p, label, use_grayscale, use_canny, with_mask)
+            item = self._load_item(p, label, use_grayscale,
+                                   with_mask, preprocess_mode, gamma)
             if item is not None:
                 group.items.append(item)
             else:
@@ -162,22 +164,25 @@ class TemplateCache:
         return group
 
     def _load_item(
-        self, path, label, use_grayscale, use_canny, with_mask=False,
+        self, path, label, use_grayscale, with_mask=False,
+        preprocess_mode="none", gamma=0.75,
     ) -> Optional[TemplateItem]:
         img = imread_chinese(path)
         if img is None:
             return None
-        gray = preprocess_image(img, use_grayscale=True, use_canny=False)
-        canny = preprocess_image(img, use_grayscale=False, use_canny=True) if use_canny else None
+        gray = preprocess_image(img, use_grayscale=True,
+                                preprocess_mode=preprocess_mode, gamma=gamma)
         mask = make_gaussian_mask(img.shape[1], img.shape[0]) if with_mask else None
         return TemplateItem(path=path, label=label, image_color=img,
-                            image_gray=gray, image_canny=canny, mask=mask)
+                            image_gray=gray, mask=mask)
 
     @staticmethod
     def _pre_scale_items(
         items: List[TemplateItem],
         scale_min: float, scale_max: float, scale_steps: int,
     ) -> None:
+        for item in items:
+            item.scaled_variants.clear()
         for s in np.linspace(scale_min, scale_max, scale_steps):
             for item in items:
                 sg = safe_resize_template(item.image_gray, s)
@@ -187,38 +192,3 @@ class TemplateCache:
                 item.scaled_variants.append(ScaledVariant(
                     scale=float(s), scaled_gray=sg, scaled_mask=sm,
                     width=sg.shape[1], height=sg.shape[0]))
-
-    def _add_width_only_scales(self, items: List[TemplateItem]) -> None:
-        """Generate width-only scaled variants for the widest N templates,
-        to handle perspective distortion where the icon appears narrower."""
-        cfg = self._config.get("pattern_width_scale", {})
-        if not cfg.get("enabled", False) or not items:
-            return
-        top_n = cfg.get("top_n", 3)
-        sc_min = cfg.get("scale_min", 0.5)
-        sc_max = cfg.get("scale_max", 1.0)
-        sc_steps = cfg.get("scale_steps", 5)
-
-        # Sort by original width, take top N widest
-        sorted_items = sorted(items, key=lambda it: it.image_gray.shape[1], reverse=True)
-        widest = sorted_items[:top_n]
-
-        extra = 0
-        for s in np.linspace(sc_min, sc_max, sc_steps):
-            for item in widest:
-                new_w = max(4, int(item.image_gray.shape[1] * s))
-                new_h = item.image_gray.shape[0]
-                sg = cv2.resize(item.image_gray, (new_w, new_h),
-                                interpolation=cv2.INTER_LINEAR)
-                if sg.size == 0:
-                    continue
-                sm = None
-                if item.mask is not None:
-                    sm = cv2.resize(item.mask, (new_w, new_h),
-                                    interpolation=cv2.INTER_LINEAR)
-                item.scaled_variants.append(ScaledVariant(
-                    scale=float(s), scaled_gray=sg, scaled_mask=sm,
-                    width=new_w, height=new_h))
-                extra += 1
-        if extra:
-            print(f"[Cache] Width-only variants: {extra} (from top {len(widest)} widest)")
