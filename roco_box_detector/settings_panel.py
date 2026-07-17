@@ -1284,6 +1284,225 @@ class IconDetectionTab(QWidget):
             ic["icon_roi"] = old["icon_roi"]
 
 
+# ── Keyword Detection Tab ─────────────────────────────────────────
+
+class KeywordDetectionTab(QWidget):
+    """Settings for keyword template matching on pattern1 region."""
+
+    def __init__(self, config: dict, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self._build()
+
+    def _build(self):
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        kd = self.config.get("keyword_detection", {})
+
+        self.enabled_cb = QCheckBox("启用关键词匹配")
+        self.enabled_cb.setChecked(kd.get("enabled", False))
+        self.enabled_cb.toggled.connect(self._on_enabled_toggled)
+        form.addRow(self.enabled_cb)
+
+        self.thresh_slider, self.thresh_spin = _make_slider_spin_double(
+            self, form, "匹配阈值", 0.40, 0.99, kd.get("threshold", 0.80), 0.01, 2)
+
+        self.scale_min_slider, self.scale_min_spin = _make_slider_spin_double(
+            self, form, "最小缩放", 0.50, 1.50, kd.get("scale_min", 0.80), 0.05, 2)
+        self.scale_max_slider, self.scale_max_spin = _make_slider_spin_double(
+            self, form, "最大缩放", 0.50, 2.00, kd.get("scale_max", 1.20), 0.05, 2)
+        self.scale_steps_spin = QSpinBox()
+        self.scale_steps_spin.setRange(1, 20)
+        self.scale_steps_spin.setValue(kd.get("scale_steps", 5))
+        form.addRow("缩放步数", self.scale_steps_spin)
+
+        self.gray_cb = QCheckBox("灰度匹配")
+        self.gray_cb.setChecked(kd.get("use_grayscale", True))
+        form.addRow(self.gray_cb)
+
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("预处理模式"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["none", "gamma", "otsu"])
+        self.mode_combo.setCurrentText(kd.get("preprocess_mode", "gamma"))
+        mode_layout.addWidget(self.mode_combo, 1)
+        form.addRow(mode_layout)
+
+        self._gamma_row = QHBoxLayout()
+        lbl = QLabel("Gamma值")
+        lbl.setFixedWidth(120)
+        self._gamma_row.addWidget(lbl)
+        self.gamma_slider = QSlider(Qt.Horizontal)
+        self.gamma_slider.setRange(4, 40)
+        self.gamma_slider.setValue(int(kd.get("gamma", 0.75) / 0.05))
+        self._gamma_row.addWidget(self.gamma_slider, 1)
+        self.gamma_spin = QDoubleSpinBox()
+        self.gamma_spin.setRange(0.20, 2.00)
+        self.gamma_spin.setSingleStep(0.05)
+        self.gamma_spin.setDecimals(2)
+        self.gamma_spin.setValue(kd.get("gamma", 0.75))
+        self.gamma_spin.setFixedWidth(80)
+        self._gamma_row.addWidget(self.gamma_spin)
+        self.gamma_slider.valueChanged.connect(lambda v: self.gamma_spin.setValue(v * 0.05))
+        self.gamma_spin.valueChanged.connect(
+            lambda v: self.gamma_slider.blockSignals(True) or
+            self.gamma_slider.setValue(int(v / 0.05)) or
+            self.gamma_slider.blockSignals(False))
+        form.addRow(self._gamma_row)
+
+        _add_separator(form)
+
+        # ── keyword templates management ──
+        self._templates_data: dict = {
+            kw: dict(cfg) for kw, cfg in kd.get("templates", {}).items()
+        }
+
+        kw_group = QGroupBox("关键词模板管理")
+        kw_layout = QVBoxLayout(kw_group)
+
+        kw_sel_row = QHBoxLayout()
+        kw_sel_row.addWidget(QLabel("关键词:"))
+        self.kw_combo = QComboBox()
+        self.kw_combo.currentTextChanged.connect(self._on_keyword_changed)
+        kw_sel_row.addWidget(self.kw_combo, 1)
+        add_kw_btn = QPushButton("+")
+        add_kw_btn.setFixedWidth(30)
+        add_kw_btn.setToolTip("添加关键词")
+        add_kw_btn.clicked.connect(self._add_keyword)
+        kw_sel_row.addWidget(add_kw_btn)
+        del_kw_btn = QPushButton("-")
+        del_kw_btn.setFixedWidth(30)
+        del_kw_btn.setToolTip("删除当前关键词")
+        del_kw_btn.clicked.connect(self._del_keyword)
+        kw_sel_row.addWidget(del_kw_btn)
+        kw_layout.addLayout(kw_sel_row)
+
+        # Output label editor
+        label_row = QHBoxLayout()
+        label_row.addWidget(QLabel("输出标签:"))
+        self.output_label_edit = QLineEdit()
+        self.output_label_edit.setPlaceholderText("匹配到后输出的文字")
+        label_row.addWidget(self.output_label_edit, 1)
+        kw_layout.addLayout(label_row)
+
+        self.kw_tmpl_list = QListWidget()
+        kw_layout.addWidget(self.kw_tmpl_list)
+
+        btn_row = QHBoxLayout()
+        add_tmpl_btn = QPushButton("+ 添加模板图片")
+        add_tmpl_btn.clicked.connect(self._add_template)
+        btn_row.addWidget(add_tmpl_btn)
+        del_tmpl_btn = QPushButton("- 删除选中")
+        del_tmpl_btn.clicked.connect(self._del_template)
+        btn_row.addWidget(del_tmpl_btn)
+        kw_layout.addLayout(btn_row)
+
+        form.addRow(kw_group)
+
+        hint = QLabel("关键词匹配模式：icon消失→截帧→anchor匹配→\n"
+                      "截取pattern1区域→关键词模板匹配→输出标签。\n"
+                      "未匹配到关键词→输出\"普通\"。")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(hint)
+
+        layout.addLayout(form)
+        layout.addStretch()
+
+        self._refresh_keywords()
+        self._on_enabled_toggled(self.enabled_cb.isChecked())
+
+    def _on_enabled_toggled(self, enabled):
+        for w in [self.thresh_spin, self.scale_min_spin, self.scale_max_spin,
+                  self.scale_steps_spin, self.gray_cb, self.mode_combo,
+                  self.gamma_spin, self.kw_combo, self.kw_tmpl_list,
+                  self.output_label_edit]:
+            w.setEnabled(enabled)
+
+    def _refresh_keywords(self):
+        self.kw_combo.blockSignals(True)
+        self.kw_combo.clear()
+        if self._templates_data:
+            self.kw_combo.addItems(sorted(self._templates_data.keys()))
+        self.kw_combo.blockSignals(False)
+        self._on_keyword_changed(self.kw_combo.currentText())
+
+    def _on_keyword_changed(self, keyword):
+        self.kw_tmpl_list.clear()
+        self.output_label_edit.clear()
+        if keyword and keyword in self._templates_data:
+            cfg = self._templates_data[keyword]
+            for p in cfg.get("paths", []):
+                self.kw_tmpl_list.addItem(p)
+            self.output_label_edit.setText(cfg.get("label", keyword))
+
+    def _add_keyword(self):
+        name, ok = QInputDialog.getText(self, "添加关键词", "关键词名称(模板文件名):")
+        if ok and name.strip():
+            name = name.strip()
+            if name not in self._templates_data:
+                self._templates_data[name] = {"paths": [], "label": name}
+                self._refresh_keywords()
+                self.kw_combo.setCurrentText(name)
+
+    def _del_keyword(self):
+        kw = self.kw_combo.currentText()
+        if not kw:
+            return
+        reply = QMessageBox.question(self, "确认", f"删除关键词 '{kw}' 及其所有模板？",
+                                      QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self._templates_data.pop(kw, None)
+            self._refresh_keywords()
+
+    def _add_template(self):
+        kw = self.kw_combo.currentText()
+        if not kw:
+            QMessageBox.warning(self, "提示", "请先选择一个关键词。")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"选择 '{kw}' 的模板图片", resolve_path("templates/keywords"),
+            "Images (*.png *.jpg *.jpeg *.bmp)")
+        if path:
+            idx = path.replace('\\', '/').find('templates/')
+            rel = path.replace('\\', '/')[idx:] if idx >= 0 else path
+            if kw not in self._templates_data:
+                self._templates_data[kw] = {"paths": [], "label": kw}
+            self._templates_data[kw].setdefault("paths", []).append(rel)
+            self._on_keyword_changed(kw)
+
+    def _del_template(self):
+        kw = self.kw_combo.currentText()
+        if not kw:
+            return
+        for item in self.kw_tmpl_list.selectedItems():
+            path = item.text()
+            if kw in self._templates_data and path in self._templates_data[kw].get("paths", []):
+                self._templates_data[kw]["paths"].remove(path)
+            self.kw_tmpl_list.takeItem(self.kw_tmpl_list.row(item))
+
+    def collect(self, cfg: dict):
+        # Save current output label before collecting
+        kw = self.kw_combo.currentText()
+        if kw and kw in self._templates_data:
+            self._templates_data[kw]["label"] = self.output_label_edit.text() or kw
+
+        kd = cfg.setdefault("keyword_detection", {})
+        kd["enabled"] = self.enabled_cb.isChecked()
+        kd["threshold"] = self.thresh_spin.value()
+        kd["scale_min"] = self.scale_min_spin.value()
+        kd["scale_max"] = self.scale_max_spin.value()
+        kd["scale_steps"] = self.scale_steps_spin.value()
+        kd["use_grayscale"] = self.gray_cb.isChecked()
+        kd["preprocess_mode"] = self.mode_combo.currentText()
+        kd["gamma"] = self.gamma_spin.value()
+        kd["templates"] = {
+            k: {"paths": list(v.get("paths", [])), "label": v.get("label", k)}
+            for k, v in self._templates_data.items() if v.get("paths")
+        }
+
+
 # ── Main Settings Window ─────────────────────────────────────────────
 
 class SettingsWindow(QWidget):
@@ -1333,7 +1552,7 @@ class SettingsWindow(QWidget):
         self.icon_tab = IconDetectionTab(self._working_config)
         self.runtime_tab = RuntimeTab(self._working_config)
         self.runtime_tab.resolution_changed.connect(self._on_resolution_changed)
-        self.tabs.addTab(self.anchor_tab, "盲盒样本")
+        self.tabs.addTab(self.anchor_tab, "提示样本")
         self.tabs.addTab(self.subroi_tab, "识别区域1")
         self.tabs.addTab(self.subroi2_tab, "识别区域2")
         self.tabs.addTab(self.icon_tab, "图标检测")

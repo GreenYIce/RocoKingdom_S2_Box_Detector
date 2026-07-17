@@ -12,7 +12,7 @@ from selector import ROISelector
 from overlay import ResultTextOverlay, DebugBoxOverlay
 from detector import CascadeDetector, CascadeDetectionResult
 from template_cache import TemplateCache
-from debug_utils import DebugDrawer
+from debug_utils import DebugDrawer 
 from settings_panel import SettingsWindow
 from startup_dialog import StartupDialog
 from image_utils import resolve_path
@@ -75,6 +75,15 @@ class App:
             else:
                 print("[Init] Icon template: NOT LOADED — check templates/icon/ directory")
 
+        # Keyword templates
+        if self.config.get("keyword_detection", {}).get("enabled"):
+            kw_group = self.cache.get_keyword_templates()
+            if kw_group and kw_group.items:
+                labels = set(it.label for it in kw_group.items)
+                print(f"[Init] Keyword templates: {', '.join(sorted(labels))}")
+            else:
+                print("[Init] Keyword templates: NOT LOADED — check templates/keywords/")
+
         # Result overlay (screenshot preview + counter)
         self.result_text = ResultTextOverlay(self.config)
         self.result_text._signals.position_changed.connect(self._on_result_text_moved)
@@ -114,6 +123,7 @@ class App:
         dirs = [
             "templates/box_anchor",
             "templates/icon",
+            "templates/keywords",
             self.config.get("debug", {}).get("debug_output_dir", "debug_output"),
         ]
         for d in dirs:
@@ -140,7 +150,7 @@ class App:
         self._selecting_roi = True
         try:
             selector = ROISelector()
-            roi = selector.select(message="框选盒子出现位置")
+            roi = selector.select(message="框选小加尔提示出现位置")
             if roi is not None:
                 self.roi = roi
                 self.detector.set_roi(roi)
@@ -151,7 +161,7 @@ class App:
                 if self.config.get("icon_detection", {}).get("enabled", False):
                     print("[ROI] Icon detection enabled — select icon area...")
                     icon_selector = ROISelector()
-                    icon_roi = icon_selector.select(message='框选右上角"幸运惊喜盒"')
+                    icon_roi = icon_selector.select(message="框选右上角四叶草铅绘图标")
                     if icon_roi is not None:
                         self.detector.set_icon_roi(icon_roi)
                         self.config["icon_detection"]["icon_roi"] = icon_roi
@@ -187,7 +197,12 @@ class App:
 
         self._update_debug_boxes(result)
 
-        if status == "sampling":
+        if status == "matched":
+            self.result_text.record_detection()
+            self.result_text.show_sampling()
+        elif status == "normal_fallback":
+            self.result_text.show_normal_fallback()
+        elif status == "sampling":
             self.result_text.show_sampling()
         elif status == "no_match":
             self.result_text.show_no_match()

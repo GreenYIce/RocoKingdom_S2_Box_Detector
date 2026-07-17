@@ -2,42 +2,26 @@
   "anchor": {
     "label": "box_anchor",
     "templates": [
-      "templates/box_anchor/anchor (1).png",
-      "templates/box_anchor/anchor (2).png",
-      "templates/box_anchor/anchor (3).png",
-      "templates/box_anchor/anchor (4).png",
-      "templates/box_anchor/anchor (5).png",
-      "templates/box_anchor/anchor (6).png",
-      "templates/box_anchor/anchor (7).png",
-      "templates/box_anchor/anchor (8).png",
-      "templates/box_anchor/anchor (9).png",
-      "templates/box_anchor/anchor (11).png",
-      "templates/box_anchor/anchor (12).png",
-      "templates/box_anchor/anchor (13).png",
-      "templates/box_anchor/anchor (15).png",
-      "templates/box_anchor/16.png",
-      "templates/box_anchor/ae7a2189621c12ceb32b2203bcbe118e.png",
-      "templates/box_anchor/d2b95767-7a0f-429f-a9b7-2e154079eb02.png",
-      "templates/box_anchor/54f52dfdb7a516811b8c9fe315c8440d.png"
+      "templates/box_anchor/ef3b5ded-4cf2-485e-8284-6c75a72b3570.png"
     ],
-    "threshold": 0.85,
+    "threshold": 0.6,
     "scale_min": 0.9,
-    "scale_max": 1.25,
+    "scale_max": 1.1,
     "scale_steps": 5,
     "use_grayscale": true,
     "preprocess_mode": "gamma",
     "gamma": 1.5,
     "early_exit_score": 0.9,
-    "coarse_threshold": 0.3
+    "coarse_threshold": 0.0
   },
   "sub_roi": {
-    "x_ratio": 0.0,
-    "y_ratio": 0.36,
-    "w_ratio": 1.0,
-    "h_ratio": 0.3
+    "x_ratio": 1.0,
+    "y_ratio": 0.0,
+    "w_ratio": 0.17,
+    "h_ratio": 1.0
   },
   "sub_roi_2": {
-    "enabled": true,
+    "enabled": false,
     "x_ratio": 0.0,
     "y_ratio": 0.71,
     "w_ratio": 1.0,
@@ -50,14 +34,14 @@
   },
   "game_resolution": "2K",
   "runtime": {
-    "normalize_roi_width": 250,
+    "normalize_roi_width": 300,
     "anchor_skip_frames": 1,
     "log_every_n_frames": 100,
     "sequence_cooldown_seconds": 1.5
   },
   "debug": {
     "enabled": false,
-    "show_preview_window": false,
+    "show_preview_window": true,
     "save_debug_frames": false,
     "save_every_n_seconds": 3,
     "debug_output_dir": "debug_output",
@@ -79,10 +63,10 @@
   },
   "result_text_overlay": {
     "enabled": true,
-    "x": 2937,
-    "y": 233,
-    "width": 858,
-    "height": 420,
+    "x": 56,
+    "y": 165,
+    "width": 582,
+    "height": 252,
     "min_width": 220,
     "min_height": 160,
     "font_family": "微软雅黑",
@@ -109,15 +93,15 @@
   "icon_detection": {
     "enabled": true,
     "templates": [
-      "templates/icon/92e16bca-924f-45e0-a0f3-c4ff61910d84.png"
+      "templates/icon/00848c7d-e411-4c6f-8d67-6c1726aaa397.png"
     ],
-    "threshold": 0.5,
+    "threshold": 0.6,
     "use_grayscale": true,
     "preprocess_mode": "gamma",
     "gamma": 0.75,
-    "scale_min": 0.7,
-    "scale_max": 1.2,
-    "scale_steps": 5,
+    "scale_min": 0.9,
+    "scale_max": 1.1,
+    "scale_steps": 7,
     "disappear_delay_seconds": 0.5,
     "debounce_frames": 3,
     "capture_offsets": [
@@ -127,11 +111,41 @@
       1.1
     ],
     "icon_roi": {
-      "left": 2235,
-      "top": 54,
-      "width": 139,
-      "height": 42
+      "left": 2147,
+      "top": 48,
+      "width": 82,
+      "height": 85
     }
+  },
+  "keyword_detection": {
+    "enabled": false,
+    "templates": {
+      "混乱": {
+        "paths": [
+          "templates/keywords/混血.png"
+        ],
+        "label": "混血"
+      },
+      "奇异": {
+        "paths": [
+          "templates/keywords/qiyi.png"
+        ],
+        "label": "奇异"
+      },
+      "污染": {
+        "paths": [
+          "templates/keywords/污染.png"
+        ],
+        "label": "污染"
+      }
+    },
+    "threshold": 0.55,
+    "scale_min": 0.9,
+    "scale_max": 1.1,
+    "scale_steps": 5,
+    "use_grayscale": true,
+    "preprocess_mode": "gamma",
+    "gamma": 0.75
   },
   "startup_complete": true,
   "capture_mode": "solo"

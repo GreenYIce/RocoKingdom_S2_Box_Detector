@@ -482,8 +482,9 @@ class ResultTextOverlay(QWidget):
             self._pos_x = config_x
             self._pos_y = config_y
 
-        # State — always screenshot mode
-        self._records_count: int = 0
+        # State — simple capture counting
+        self._total_count: int = 0
+        self._show_normal_text = False  # show "普通" centered in preview
         self._dragging = False
         self._drag_start = QPoint()
         self._mouse_locked = False
@@ -645,6 +646,10 @@ class ResultTextOverlay(QWidget):
             "border-radius: 4px; padding: 4px;")
         self._ss_img2.setMinimumSize(160, 100)
         ss_row.addWidget(self._ss_img2, 1)
+
+        # Hide second preview if sub_roi_2 is disabled
+        if not self.config.get("sub_roi_2", {}).get("enabled", False):
+            self._ss_img2.hide()
 
         ss_layout.addLayout(ss_row)
         self._screenshot_preview.hide()
@@ -870,13 +875,12 @@ class ResultTextOverlay(QWidget):
         self._signals.toggle_debug_overlay.emit(self._status_overlay_on)
 
     def _refresh_screenshot_counter(self):
-        """Show simplified counter: total box count."""
-        total = self._records_count
-        if total > 0:
+        """Show total capture count."""
+        if self._total_count > 0:
             self._bl_counter.setText(
                 f"<html><body style='margin:0;padding:0'>"
                 f"<span style='color:#aaa;font-size:{self._counter_title_font_size}px;'>捕捉次数</span> "
-                f"<span style='color:#ffaa00;font-size:{self._counter_font_size}px;'>x {total}</span>"
+                f"<span style='color:#ffaa00;font-size:{self._counter_font_size}px;'>x {self._total_count}</span>"
                 f"</body></html>")
         else:
             self._bl_counter.setText("")
@@ -936,6 +940,11 @@ class ResultTextOverlay(QWidget):
     def clear_results(self) -> None:
         self._signals.clear_results.emit()
 
+    def record_detection(self) -> None:
+        """Increment total capture count."""
+        self._total_count += 1
+        self._refresh_screenshot_counter()
+
     def toggle_visibility(self):
         if self.isMinimized():
             self.showNormal()
@@ -949,20 +958,37 @@ class ResultTextOverlay(QWidget):
 
     def show_sampling(self):
         self._start_cooldown()
+        self._show_normal_text = False
         self._status_lbl.setText("📷 截图模式")
         self._status_lbl.setStyleSheet(
             f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
 
     def show_match(self, text: str = ""):
         self._start_cooldown()
+        self._show_normal_text = False
         self._status_lbl.setText("📷 截图模式")
         self._status_lbl.setStyleSheet(
             f"color: #44dd88; font-size: {self._status_font_size}px; background: transparent;")
 
     def show_no_match(self):
         self._start_cooldown()
-        self._records_count += 1
+        self._total_count += 1
         self._refresh_screenshot_counter()
+        self._status_lbl.setText("📷 截图模式")
+        self._status_lbl.setStyleSheet(
+            f"color: #44dd88; font-size: {self._status_font_size}px; "
+            "background: transparent;")
+
+    def show_normal_fallback(self):
+        """Display '普通' centered in the preview area."""
+        self._start_cooldown()
+        self._total_count += 1
+        self._show_normal_text = True
+        self._refresh_screenshot_counter()
+        self._ss_img1.setPixmap(QPixmap())
+        self._ss_img1.setText(
+            f"<span style='color:#ff8800;font-size:48px;font-weight:bold;'>普通</span>")
+        self._ss_img2.setPixmap(QPixmap())
         self._status_lbl.setText("📷 截图模式")
         self._status_lbl.setStyleSheet(
             f"color: #44dd88; font-size: {self._status_font_size}px; "
@@ -991,8 +1017,13 @@ class ResultTextOverlay(QWidget):
         pass
 
     def _do_clear(self):
-        self._records_count = 0
+        self._total_count = 0
+        self._show_normal_text = False
         self._refresh_screenshot_counter()
+        # Clear screenshot preview
+        self._ss_img1.setText("等待截图...")
+        self._ss_img1.setPixmap(QPixmap())
+        self._ss_img2.setPixmap(QPixmap())
 
     # ── counter ───────────────────────────────────────────────────────
 
@@ -1131,6 +1162,11 @@ class ResultTextOverlay(QWidget):
             self._counter_area.show()
         else:
             self._counter_area.hide()
+        # Show/hide second preview based on sub_roi_2
+        if config.get("sub_roi_2", {}).get("enabled", False):
+            self._ss_img2.show()
+        else:
+            self._ss_img2.hide()
         self._refresh_screenshot_counter()
 
 
