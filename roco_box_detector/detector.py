@@ -486,8 +486,10 @@ class CascadeDetector(threading.Thread):
         self._dbg_icon_score = float(best_score)
         self._dbg_icon_present = best_score >= self._icon_threshold
 
-        # Periodic score logging (every ~60 frames)
-        if self._frame_idx % 60 == 0:
+        # Log only when match state changes
+        prev_icon = self._dbg_icon_present
+        self._dbg_icon_present = best_score >= self._icon_threshold
+        if prev_icon != self._dbg_icon_present:
             state = "MATCH" if self._dbg_icon_present else "below threshold"
             print(f"[Icon] score={best_score:.3f} (threshold={self._icon_threshold}) → {state}")
 
@@ -510,7 +512,7 @@ class CascadeDetector(threading.Thread):
             self._icon_consecutive_present = 0
         self._dbg_status_text = self._icon_status_text
         self._show_live_preview()
-        if self._frame_idx % 30 == 0:
+        if self._frame_idx % 300 == 0:
             return CascadeDetectionResult(
                 matched=False, label=None, anchor_result=None,
                 sub_roi_box=None, status="icon_waiting",
@@ -535,7 +537,7 @@ class CascadeDetector(threading.Thread):
             self._icon_consecutive_absent = 0
         self._dbg_status_text = self._icon_status_text
         self._show_live_preview()
-        if self._frame_idx % 30 == 0:
+        if self._frame_idx % 300 == 0:
             return CascadeDetectionResult(
                 matched=False, label=None, anchor_result=None,
                 sub_roi_box=None, status="icon_waiting_gone",
@@ -576,7 +578,7 @@ class CascadeDetector(threading.Thread):
             return None
         self._dbg_status_text = f"capture in {remaining:.1f}s"
         self._show_live_preview()
-        if self._frame_idx % 30 == 0:
+        if self._frame_idx % 300 == 0:
             return CascadeDetectionResult(
                 matched=False, label=None, anchor_result=None,
                 sub_roi_box=None, status="icon_delay",
@@ -825,7 +827,7 @@ class CascadeDetector(threading.Thread):
             return None
 
         # ── normal path: ROI capture + anchor matching ──
-        if self._icon_detection_enabled and self._frame_idx % 60 == 0:
+        if self._icon_detection_enabled and self._frame_idx % 300 == 0:
             print(f"[IconState] anchor search active (gate open)")
         capture = self._capture_roi()
         if capture is None:
@@ -940,22 +942,33 @@ class CascadeDetector(threading.Thread):
             # Icon-only mode: game ROI not yet captured, use placeholder
             debug = np.zeros((360, 480, 3), dtype=np.uint8)
 
-        # ── icon thumbnail overlay (top-right corner) ──
+        # ── pad debug image to fit icon thumbnail if needed ──
         if self._icon_detection_enabled and self._dbg_icon_thumbnail is not None:
             thumb = self._dbg_icon_thumbnail
             th, tw = thumb.shape[:2]
             margin = 4
-            ix = max(0, debug.shape[1] - tw - margin)
+            min_w = tw + margin
+            min_h = 28 + th  # iy=28 + thumb height
+            if debug.shape[1] < min_w or debug.shape[0] < min_h:
+                new_w = max(debug.shape[1], min_w)
+                new_h = max(debug.shape[0], min_h)
+                padded = np.zeros((new_h, new_w, 3), dtype=np.uint8)
+                padded[:debug.shape[0], :debug.shape[1]] = debug
+                debug = padded
+
+        # ── icon thumbnail overlay (top-right corner) ──
+        if self._icon_detection_enabled and self._dbg_icon_thumbnail is not None:
+            thumb = self._dbg_icon_thumbnail
+            th, tw = thumb.shape[:2]
+            ix = debug.shape[1] - tw - margin
             iy = 28
-            # Only draw if debug image is large enough
-            if iy + th <= debug.shape[0] and ix + tw <= debug.shape[1]:
-                border_color = (0, 220, 0) if self._dbg_icon_present else (0, 0, 220)
-                cv2.rectangle(debug, (ix - 2, iy - 2), (ix + tw + 2, iy + th + 2),
-                              border_color, 2)
-                debug[iy:iy + th, ix:ix + tw] = thumb
-                cv2.putText(debug, f"icon {self._dbg_icon_score:.2f}",
-                            (ix, iy - 6), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.35, border_color, 1)
+            border_color = (0, 220, 0) if self._dbg_icon_present else (0, 0, 220)
+            cv2.rectangle(debug, (ix - 2, iy - 2), (ix + tw + 2, iy + th + 2),
+                          border_color, 2)
+            debug[iy:iy + th, ix:ix + tw] = thumb
+            cv2.putText(debug, f"icon {self._dbg_icon_score:.2f}",
+                        (ix, iy - 6), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.35, border_color, 1)
 
         bar_h = 26
         cv2.rectangle(debug, (0, 0), (debug.shape[1], bar_h), (0, 0, 0), -1)

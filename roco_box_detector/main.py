@@ -20,7 +20,22 @@ from image_utils import resolve_path
 import keyboard
 
 
-CONFIG_PATH = resolve_path("config.json")
+# Resolve config path: always prefer exe directory in frozen mode so saves persist
+def _get_config_path() -> str:
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        cfg = os.path.join(exe_dir, "config.json")
+        if os.path.exists(cfg):
+            return cfg
+        # First run: copy bundled config to exe dir so it's writable
+        bundled = resolve_path("config.json")
+        if os.path.exists(bundled) and bundled != cfg:
+            import shutil
+            shutil.copy(bundled, cfg)
+        return cfg
+    return resolve_path("config.json")
+
+CONFIG_PATH = _get_config_path()
 
 
 # ── Thread-safe bridge ──────────────────────────────────────────────
@@ -206,8 +221,6 @@ class App:
             self.result_text.show_sampling()
         elif status == "no_match":
             self.result_text.show_no_match()
-        elif status in ("icon_waiting", "icon_waiting_gone", "icon_delay"):
-            pass  # icon state updates are handled by detector's debug preview
 
     # ── hotkeys ───────────────────────────────────────────────────────
 
